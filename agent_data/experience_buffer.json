@@ -1,0 +1,152 @@
+[
+  {
+    "episode": 1,
+    "task_id": "task_1",
+    "difficulty": "easy",
+    "report": "Title: SQL Injection in Login Form\nDescription: The /api/v1/login endpoint is vulnerable to SQL injection. Submitting the payload ' OR 1=1 -- in the 'username' field bypasses authentication entirely and returns the first user record from the database.  The application concatenates user input directl...",
+    "action": {
+      "severity": "critical",
+      "component": "database",
+      "remediation": "Apply standard security best practices including input validation, output encoding, proper authentication, and defense-in-depth measures."
+    },
+    "reward": 0.8375,
+    "info": {
+      "task_id": "task_1",
+      "difficulty": "easy",
+      "raw_reward": 0.8375,
+      "scaled_reward": 0.8375,
+      "expected_severity": "critical",
+      "expected_component": "database",
+      "agent_severity": "critical",
+      "agent_component": "database",
+      "explanation": {
+        "severity_score": 0.4,
+        "component_score": 0.3,
+        "remediation_score": 0.0375,
+        "bonus_score": 0.1
+      },
+      "confidence": 0.84
+    },
+    "reasoning_summary": "[EXPLORATION] Random action"
+  },
+  {
+    "episode": 2,
+    "task_id": "task_ext_10",
+    "difficulty": "medium",
+    "report": "found open redirect on /login?next=http://evil.com\nafter login it redirects to attacker site\ncan be used for phishing\nno validation on the next parameter\nusers trust the domain and enter creds on fake page\nworks on all browsers tested chrome firefox safari\nthe redirect happens server-side with a 302",
+    "action": {
+      "severity": "critical",
+      "component": "auth",
+      "remediation": "Apply standard security best practices including input validation, output encoding, proper authentication, and defense-in-depth measures."
+    },
+    "reward": 0.36,
+    "info": {
+      "task_id": "task_ext_10",
+      "difficulty": "medium",
+      "raw_reward": 0.3,
+      "scaled_reward": 0.36,
+      "expected_severity": "medium",
+      "expected_component": "auth",
+      "agent_severity": "critical",
+      "agent_component": "auth",
+      "explanation": {
+        "severity_score": 0.0,
+        "component_score": 0.3,
+        "remediation_score": 0.0,
+        "bonus_score": 0.0
+      },
+      "confidence": 0.36
+    },
+    "reasoning_summary": "[EXPLORATION] Random action"
+  },
+  {
+    "episode": 3,
+    "task_id": "task_10",
+    "difficulty": "easy",
+    "report": "Title: Information Disclosure via Verbose Error Messages\nDescription: The /api/v1/users endpoint returns detailed stack traces and internal debugging information when an unhandled exception occurs.  By sending a malformed JSON payload, the server responds with a 500 error that includes the full Pyth...",
+    "action": {
+      "severity": "low",
+      "component": "database",
+      "remediation": "Apply standard security best practices including input validation, output encoding, proper authentication, and defense-in-depth measures."
+    },
+    "reward": 0.5,
+    "info": {
+      "task_id": "task_10",
+      "difficulty": "easy",
+      "raw_reward": 0.5,
+      "scaled_reward": 0.5,
+      "expected_severity": "low",
+      "expected_component": "api",
+      "agent_severity": "low",
+      "agent_component": "database",
+      "explanation": {
+        "severity_score": 0.4,
+        "component_score": 0.0,
+        "remediation_score": 0.0,
+        "bonus_score": 0.1
+      },
+      "confidence": 0.5
+    },
+    "reasoning_summary": "[EXPLORATION] Random action"
+  },
+  {
+    "episode": 4,
+    "task_id": "task_3",
+    "difficulty": "easy",
+    "report": "Title: Remote Code Execution via File Upload\nDescription: The /api/v1/upload endpoint allows uploading arbitrary files including .php and .py scripts.  Uploaded files are stored in a web-accessible directory and can be executed by navigating to their URL.  An attacker can upload a reverse shell and ...",
+    "action": {
+      "severity": "high",
+      "component": "network",
+      "remediation": "Apply standard security best practices including input validation, output encoding, proper authentication, and defense-in-depth measures."
+    },
+    "reward": 0.1,
+    "info": {
+      "task_id": "task_3",
+      "difficulty": "easy",
+      "raw_reward": 0.1,
+      "scaled_reward": 0.1,
+      "expected_severity": "critical",
+      "expected_component": "api",
+      "agent_severity": "high",
+      "agent_component": "network",
+      "explanation": {
+        "severity_score": 0.0,
+        "component_score": 0.0,
+        "remediation_score": 0.0,
+        "bonus_score": 0.1
+      },
+      "confidence": 0.1
+    },
+    "reasoning_summary": "[EXPLORATION] Random action"
+  },
+  {
+    "episode": 5,
+    "task_id": "task_4",
+    "difficulty": "medium",
+    "report": "Title: Auth Token Reuse After Password Change\nDescription: After a user changes their password, previously issued JWT tokens remain valid.  The application does not invalidate old tokens upon credential rotation.  This means a stolen token continues to grant access even after the legitimate user has...",
+    "action": {
+      "severity": "critical",
+      "component": "frontend",
+      "remediation": "Apply standard security best practices including input validation, output encoding, proper authentication, and defense-in-depth measures."
+    },
+    "reward": 0.12,
+    "info": {
+      "task_id": "task_4",
+      "difficulty": "medium",
+      "raw_reward": 0.1,
+      "scaled_reward": 0.12,
+      "expected_severity": "high",
+      "expected_component": "auth",
+      "agent_severity": "critical",
+      "agent_component": "frontend",
+      "explanation": {
+        "severity_score": 0.0,
+        "component_score": 0.0,
+        "remediation_score": 0.0,
+        "bonus_score": 0.1
+      },
+      "confidence": 0.12
+    },
+    "reasoning_summary": "[EXPLORATION] Random action"
+  }
+]

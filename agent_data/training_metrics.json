@@ -1,0 +1,67 @@
+[
+  {
+    "episode": 1,
+    "task_id": "task_1",
+    "difficulty": "easy",
+    "reward": 0.8375,
+    "epsilon": 1.0,
+    "was_exploration": true,
+    "severity_correct": true,
+    "component_correct": true,
+    "reasoning_steps": 0,
+    "tokens_used": 0,
+    "reflection_triggered": false
+  },
+  {
+    "episode": 2,
+    "task_id": "task_ext_10",
+    "difficulty": "medium",
+    "reward": 0.36,
+    "epsilon": 1.0,
+    "was_exploration": true,
+    "severity_correct": false,
+    "component_correct": true,
+    "reasoning_steps": 0,
+    "tokens_used": 0,
+    "reflection_triggered": false
+  },
+  {
+    "episode": 3,
+    "task_id": "task_10",
+    "difficulty": "easy",
+    "reward": 0.5,
+    "epsilon": 1.0,
+    "was_exploration": true,
+    "severity_correct": true,
+    "component_correct": false,
+    "reasoning_steps": 0,
+    "tokens_used": 0,
+    "reflection_triggered": false
+  },
+  {
+    "episode": 4,
+    "task_id": "task_3",
+    "difficulty": "easy",
+    "reward": 0.1,
+    "epsilon": 1.0,
+    "was_exploration": true,
+    "severity_correct": false,
+    "component_correct": false,
+    "reasoning_steps": 0,
+    "tokens_used": 0,
+    "reflection_triggered": false
+  },
+  {
+    "episode": 5,
+    "task_id": "task_4",
+    "difficulty": "medium",
+    "reward": 0.12,
+    "epsilon": 1.0,
+    "was_exploration": true,
+    "severity_correct": false,
+    "component_correct": false,
+    "reasoning_steps": 0,
+    "tokens_used": 0,
+    "reflection_triggered": false
+  }
+]
