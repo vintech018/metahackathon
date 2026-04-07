@@ -1,0 +1,17 @@
+[
+  {
+    "id": 1,
+    "title": "SQL Injection in profile",
+    "difficulty": "easy"
+  },
+  {
+    "id": 2,
+    "title": "DoS via malicious PDF",
+    "difficulty": "medium"
+  },
+  {
+    "id": 3,
+    "title": "Stored XSS to Privilege Escalation",
+    "difficulty": "hard"
+  }
+]

@@ -17,7 +17,7 @@
   --severity-high: #f97316;
   --severity-medium: #eab308;
   --severity-low: #22c55e;
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-sans: 'Inter', 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
@@ -71,10 +71,11 @@ body::before {
 
 /* ── Glass Card ──────────────────────────────────────────────────────────── */
 .glass-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: linear-gradient(145deg, rgba(24, 24, 27, 0.6) 0%, rgba(9, 9, 11, 0.8) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border-radius: 1rem;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -82,6 +83,21 @@ body::before {
 .glass-card:hover {
   background: var(--bg-card-hover);
   border-color: var(--border-active);
+}
+
+/* ── Typography helpers ──────────────────────────────────────────────────── */
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.glow-text {
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.4);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #fff 0%, #a1a1aa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 /* ── Textarea ────────────────────────────────────────────────────────────── */

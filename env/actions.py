@@ -1,10 +1,27 @@
 """Action space definitions for the Bug Bounty Triage environment."""
 
+from enum import Enum
 from pydantic import BaseModel, field_validator
 from typing import Literal
 
 
-# ── Canonical values ──────────────────────────────────────────────────────────
+# ── Jaspreet's Action Enum (VulnArena pipeline actions) ──────────────────────
+
+class Action(str, Enum):
+    ANALYZE_REPORT = "analyze_report"
+    ANALYZE_LOGS = "analyze_logs"
+    INSPECT_CODE = "inspect_code"
+    EXTRACT_VULNERABILITY = "extract_vulnerability"
+    ESTIMATE_SEVERITY = "estimate_severity"
+    IDENTIFY_COMPONENT = "identify_component"
+    SIMULATE_ATTACK = "simulate_attack"
+    CHAIN_VULNERABILITIES = "chain_vulnerabilities"
+    SUGGEST_FIX = "suggest_fix"
+    VALIDATE_FIX = "validate_fix"
+
+
+# ── Vaibhav's TriageAction (OpenEnv structured output) ───────────────────────
+
 VALID_SEVERITIES: set[str] = {"critical", "high", "medium", "low"}
 
 VALID_COMPONENTS: set[str] = {"auth", "database", "api", "frontend", "network"}
