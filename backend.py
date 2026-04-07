@@ -64,6 +64,11 @@ if not API_KEY:
 from openai import OpenAI
 from env.triage_env import TriageEnv
 from env.tasks import ALL_TASKS
+from env.environment import VulnArenaEnv
+
+# ── VulnArena Environment (singleton for jaspreet frontend) ──────────────────
+# Shared instance — stateful, persists between /reset and /step calls.
+vuln_arena_env = VulnArenaEnv()
 
 # ── LLM Client ───────────────────────────────────────────────────────────────
 
@@ -457,6 +462,17 @@ class APIHandler(BaseHTTPRequestHandler):
                 for t in ALL_TASKS
             ]
             self._json_response(tasks)
+
+        # ── VulnArena routes (jaspreet frontend) ─────────────────────────
+        elif path == "/state":
+            self._json_response({"state": vuln_arena_env.state()})
+
+        elif path == "/reset":
+            # Allow GET /reset as a convenience (resets to 'easy')
+            print("[VULNARENA] GET /reset → easy")
+            state = vuln_arena_env.reset("easy")
+            self._json_response(state)
+
         else:
             self.send_error(404, "Not found")
 
@@ -487,6 +503,35 @@ class APIHandler(BaseHTTPRequestHandler):
             print(f"[TRIAGE] Task: {task_id or 'random'}")
             result = run_triage_task(task_id)
             self._json_response(result)
+
+        # ── VulnArena routes (jaspreet frontend) ─────────────────────────
+        elif path == "/reset":
+            task_name = data.get("task_name", "easy")
+            print(f"[VULNARENA] POST /reset task={task_name}")
+            state = vuln_arena_env.reset(task_name)
+            self._json_response(state)
+
+        elif path == "/step":
+            action = data.get("action", "")
+            print(f"[VULNARENA] POST /step action={action}")
+
+            # Build a simple object to pass custom inputs (if provided)
+            class _CustomReq:
+                report_text = data.get("report_text") or None
+                logs = data.get("logs") or None
+                code_snippet = data.get("code_snippet") or None
+
+            custom_req = _CustomReq() if any([
+                data.get("report_text"), data.get("logs"), data.get("code_snippet")
+            ]) else None
+
+            state_dict, reward, done, info = vuln_arena_env.step(action, custom_req=custom_req)
+            self._json_response({
+                "observation": state_dict,
+                "reward": reward,
+                "done": done,
+                "info": info,
+            })
 
         else:
             self.send_error(404, "Not found")

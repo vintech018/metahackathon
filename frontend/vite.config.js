@@ -8,7 +8,21 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
+      // Vaibhav's triage API
       '/api': {
+        target: 'http://localhost:5001',
+        changeOrigin: true,
+      },
+      // Jaspreet's VulnArena environment API (now served by vaibhav's backend)
+      '/reset': {
+        target: 'http://localhost:5001',
+        changeOrigin: true,
+      },
+      '/step': {
+        target: 'http://localhost:5001',
+        changeOrigin: true,
+      },
+      '/state': {
         target: 'http://localhost:5001',
         changeOrigin: true,
       },

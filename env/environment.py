@@ -1,18 +1,21 @@
-import gym
+try:
+    import gymnasium as gym
+except ImportError:
+    import gym  # fallback for older installs
 from typing import Dict, Any, Tuple
 from .state import Observation
 from .actions import Action
 from .reward import calculate_step_reward
 from tasks import easy, medium, hard
 from grader.cvss_grader import calculate_final_score
-from fastapi import FastAPI
-from pydantic import BaseModel
-from dotenv import load_dotenv
 import os
 
-# Load .env from repo root (two levels up from this file)
-_ENV_PATH = os.path.join(os.path.dirname(__file__), "..", ".env")
-load_dotenv(_ENV_PATH)
+try:
+    from dotenv import load_dotenv
+    _ENV_PATH = os.path.join(os.path.dirname(__file__), "..", ".env")
+    load_dotenv(_ENV_PATH)
+except ImportError:
+    pass  # dotenv is optional; vars already loaded by backend.py
 
 from .ai_fixer import generate_fix
 
@@ -177,42 +180,3 @@ class VulnArenaEnv:
     def state(self) -> Dict[str, Any]:
         return self.obs.dict()
 
-
-# --- Fast API Server setup ---
-app = FastAPI(title="VulnArena AI")
-env = VulnArenaEnv()
-
-class ResetRequest(BaseModel):
-    task_name: str = "easy"
-
-class StepRequest(BaseModel):
-    action: str
-
-@app.post("/reset")
-def reset_endpoint(req: ResetRequest = None):
-    task_name = req.task_name if req else "easy"
-    state_dict = env.reset(task_name)
-    return {"state": state_dict}
-
-@app.get("/reset")
-def reset_get():
-    state_dict = env.reset("easy")
-    return {"state": state_dict}
-
-@app.post("/step")
-def step_endpoint(req: StepRequest):
-    state_dict, reward, done, info = env.step(req.action)
-    return {
-        "observation": state_dict,
-        "reward": reward,
-        "done": done,
-        "info": info
-    }
-
-@app.get("/state")
-def state_endpoint():
-    return {"state": env.state()}
-
-@app.get("/")
-def root():
-    return {"status": "ok", "message": "VulnArena AI is running"}

@@ -1,93 +1,40 @@
 @import "tailwindcss";
 
-/* ── Design Tokens ───────────────────────────────────────────────────────── */
-:root {
-  --bg-primary: #06080f;
-  --bg-card: rgba(255, 255, 255, 0.03);
-  --bg-card-hover: rgba(255, 255, 255, 0.06);
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-active: rgba(255, 255, 255, 0.12);
-  --text-primary: #f0f2f5;
-  --text-secondary: #8b8fa3;
-  --text-tertiary: #5c5f72;
-  --accent-violet: #8b5cf6;
-  --accent-violet-glow: rgba(139, 92, 246, 0.15);
-  --accent-blue: #3b82f6;
-  --severity-critical: #ef4444;
-  --severity-high: #f97316;
-  --severity-medium: #eab308;
-  --severity-low: #22c55e;
-  --font-sans: 'Inter', 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-}
-
-/* ── Base ─────────────────────────────────────────────────────────────────── */
-* { box-sizing: border-box; }
-
-html {
-  scroll-behavior: smooth;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
 body {
   margin: 0;
-  padding: 0;
-  font-family: var(--font-sans);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  min-height: 100vh;
-  overflow-x: hidden;
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: #000000;
+  color: #ededed;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* ── Background Ambiance ─────────────────────────────────────────────────── */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  background:
-    radial-gradient(ellipse 600px 400px at 15% 20%, rgba(139, 92, 246, 0.06), transparent),
-    radial-gradient(ellipse 500px 350px at 85% 70%, rgba(59, 130, 246, 0.04), transparent),
-    radial-gradient(ellipse 400px 300px at 50% 50%, rgba(139, 92, 246, 0.02), transparent);
-  pointer-events: none;
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
 }
 
-#root {
-  position: relative;
-  z-index: 1;
+/* Linear-like custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
-
-/* ── Scrollbar ─────────────────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-track {
+  background: transparent;
+}
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 999px;
+  background: #222;
+  border-radius: 10px;
+  border: 1px solid #000;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: #444;
 }
 
-/* ── Glass Card ──────────────────────────────────────────────────────────── */
 .glass-card {
   background: linear-gradient(145deg, rgba(24, 24, 27, 0.6) 0%, rgba(9, 9, 11, 0.8) 100%);
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-radius: 1rem;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.glass-card:hover {
-  background: var(--bg-card-hover);
-  border-color: var(--border-active);
-}
-
-/* ── Typography helpers ──────────────────────────────────────────────────── */
-.font-mono {
-  font-family: 'JetBrains Mono', monospace;
 }
 
 .glow-text {
@@ -98,103 +45,4 @@ body::before {
   background: linear-gradient(135deg, #fff 0%, #a1a1aa 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-}
-
-/* ── Textarea ────────────────────────────────────────────────────────────── */
-textarea {
-  font-family: var(--font-mono);
-  resize: none;
-}
-
-textarea:focus {
-  outline: none;
-}
-
-/* ── Animated Gradient Button ────────────────────────────────────────────── */
-.btn-gradient {
-  background: linear-gradient(135deg, #8b5cf6, #6366f1, #3b82f6);
-  background-size: 200% 200%;
-  animation: gradient-shift 4s ease infinite;
-  border: none;
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
-}
-
-.btn-gradient::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(255,255,255,0.1), transparent, rgba(255,255,255,0.05));
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-.btn-gradient:hover::before { opacity: 1; }
-
-.btn-gradient:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  animation: none;
-}
-
-@keyframes gradient-shift {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-}
-
-/* ── Progress bars ───────────────────────────────────────────────────────── */
-.progress-track {
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-/* ── Drag active state ───────────────────────────────────────────────────── */
-.drop-zone-active {
-  border-color: var(--accent-violet) !important;
-  background: var(--accent-violet-glow) !important;
-}
-
-/* ── Pulse animation ─────────────────────────────────────────────────────── */
-@keyframes subtle-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
-}
-
-.animate-subtle-pulse {
-  animation: subtle-pulse 2s ease-in-out infinite;
-}
-
-/* ── Dot loader ──────────────────────────────────────────────────────────── */
-@keyframes bounce-dot {
-  0%, 80%, 100% { transform: scale(0); opacity: 0.3; }
-  40% { transform: scale(1); opacity: 1; }
-}
-
-.dot-loader span {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent-violet);
-  animation: bounce-dot 1.4s infinite ease-in-out both;
-}
-
-.dot-loader span:nth-child(1) { animation-delay: -0.32s; }
-.dot-loader span:nth-child(2) { animation-delay: -0.16s; }
-.dot-loader span:nth-child(3) { animation-delay: 0s; }
-
-/* ── Ripple effect ───────────────────────────────────────────────────────── */
-.ripple {
-  position: absolute;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.2);
-  transform: scale(0);
-  animation: ripple-anim 0.6s linear;
-  pointer-events: none;
-}
-
-@keyframes ripple-anim {
-  to { transform: scale(4); opacity: 0; }
 }
