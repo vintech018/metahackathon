@@ -239,7 +239,10 @@ class LLMReasoningEngine:
     def _get_client(self) -> OpenAI:
         if self._client is None:
             self._config.validate()
-            self._client = OpenAI(api_key=self._config.api_key)
+            self._client = OpenAI(
+                api_key=self._config.api_key,
+                base_url=self._config.base_url,
+            )
         return self._client
 
     def _call_llm(self, system: str, user: str) -> tuple[str, int]:

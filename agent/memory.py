@@ -185,7 +185,10 @@ class ReflectionEngine:
         if self._client is None:
             from openai import OpenAI
             self._config.validate()
-            self._client = OpenAI(api_key=self._config.api_key)
+            self._client = OpenAI(
+                api_key=self._config.api_key,
+                base_url=self._config.base_url,
+            )
         return self._client
 
     def reflect(

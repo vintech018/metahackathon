@@ -46,7 +46,7 @@ def main():
     parser = argparse.ArgumentParser(description="Triage a single vulnerability report")
     parser.add_argument("--report", type=str, help="Report text to analyze")
     parser.add_argument("--file", type=str, help="File containing the report")
-    parser.add_argument("--model", type=str, default="gpt-4o-mini", help="OpenAI model")
+    parser.add_argument("--model", type=str, default=None, help="Groq model (default: read from MODEL_NAME env var)")
     parser.add_argument("--sample", type=int, choices=[1, 2, 3], help="Use a sample report (1-3)")
 
     args = parser.parse_args()

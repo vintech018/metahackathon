@@ -13,7 +13,7 @@ Usage:
 
 Environment variables:
     API_BASE_URL  — OpenAI-compatible API base URL
-    MODEL_NAME    — Model identifier (e.g., gpt-4o-mini)
+    MODEL_NAME    — Model identifier (e.g., llama-3.3-70b-versatile)
     API_KEY       — API key (falls back to HF_TOKEN if not set)
 """
 

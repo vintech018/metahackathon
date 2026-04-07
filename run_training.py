@@ -4,11 +4,11 @@ Training runner — launch the AI vulnerability triage agent for training.
 
 Usage:
     python run_training.py --episodes 20
-    python run_training.py --episodes 50 --model gpt-4o
+    python run_training.py --episodes 50 --model llama-3.3-70b-versatile
     python run_training.py --episodes 10 --no-extended
 
 Environment:
-    OPENAI_API_KEY must be set.
+    API_KEY must be set (Groq API key from .env).
 """
 
 import argparse
@@ -32,8 +32,8 @@ def main():
         help="Number of training episodes (default: 20)",
     )
     parser.add_argument(
-        "--model", type=str, default="gpt-4o-mini",
-        help="OpenAI model to use (default: gpt-4o-mini)",
+        "--model", type=str, default=None,
+        help="Groq model to use (default: read from MODEL_NAME env var)",
     )
     parser.add_argument(
         "--temperature", type=float, default=0.3,

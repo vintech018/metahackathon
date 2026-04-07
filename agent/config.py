@@ -3,6 +3,11 @@ Configuration for the AI Vulnerability Triage Agent.
 
 Centralizes all knobs: model settings, RL hyperparameters, file paths,
 and prompt templates.
+
+API credentials are loaded from environment variables:
+    API_KEY      — Groq API key
+    API_BASE_URL — Groq base URL (https://api.groq.com/openai/v1)
+    MODEL_NAME   — Model identifier (llama-3.3-70b-versatile)
 """
 
 from __future__ import annotations
@@ -14,17 +19,18 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class LLMConfig:
-    """OpenAI-compatible LLM settings."""
-    model: str = "gpt-4o-mini"
+    """Groq-compatible LLM settings (OpenAI-compatible API)."""
+    model: str = field(default_factory=lambda: os.environ.get("MODEL_NAME", "llama-3.3-70b-versatile"))
+    base_url: str = field(default_factory=lambda: os.environ.get("API_BASE_URL", "https://api.groq.com/openai/v1"))
     temperature: float = 0.3
     max_tokens: int = 2048
-    api_key: str = field(default_factory=lambda: os.environ.get("OPENAI_API_KEY", ""))
+    api_key: str = field(default_factory=lambda: os.environ.get("API_KEY", ""))
 
     def validate(self) -> None:
         if not self.api_key:
             raise ValueError(
-                "OPENAI_API_KEY is not set. "
-                "Export it as an environment variable or pass it directly."
+                "API_KEY is not set. "
+                "Set it in your .env file or export API_KEY=<your-groq-key>"
             )
 
 

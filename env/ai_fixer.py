@@ -102,25 +102,18 @@ Fixed Code:
 <corrected secure code only>
 """
 
-# ── Provider candidates ────────────────────────────────────────────────────────
-_CANDIDATES = [
-    ("https://api.groq.com/openai/v1",        "llama-3.1-8b-instant"),
-    ("https://api.groq.com/openai/v1",        "llama-3.3-70b-versatile"),
-    ("https://api.together.xyz/v1",            "meta-llama/Llama-3-8b-chat-hf"),
-    ("https://openrouter.ai/api/v1",           "meta-llama/llama-3-8b-instruct:free"),
-    ("https://api.openai.com/v1",              "gpt-3.5-turbo"),
-    ("https://api.mistral.ai/v1",              "mistral-tiny"),
-    ("http://localhost:11434/v1",              "llama3"),
-]
-
+# ── Provider config ────────────────────────────────────────────────────────────
+# Single source of truth: read from .env (API_KEY, API_BASE_URL, MODEL_NAME)
 
 def _get_config():
+    """Read Groq API credentials from environment at call-time (hot-reload safe)."""
     load_dotenv(_ENV_PATH, override=True)
     return (
-        os.getenv("OLLAMA_API_KEY",  "").strip(),
-        os.getenv("OLLAMA_BASE_URL", "").strip(),
-        os.getenv("OLLAMA_MODEL",    "").strip(),
+        os.getenv("API_KEY",      "").strip(),                               # Groq API key
+        os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1").strip(), # Groq base URL
+        os.getenv("MODEL_NAME",   "llama-3.3-70b-versatile").strip(),        # Groq model
     )
+
 
 
 def _try_chat(base_url, model, api_key, messages, timeout=30):
@@ -172,7 +165,7 @@ def _parse_response(raw: str) -> dict:
 
 def generate_fix(bug_report: str, logs, code: str) -> dict:
     """
-    Generate a structured security fix.
+    Generate a structured security fix using Groq API.
     Always returns a dict: { vulnerability, severity, fixed_code, raw }
     """
     api_key, base_url, model = _get_config()
@@ -188,27 +181,17 @@ def generate_fix(bug_report: str, logs, code: str) -> dict:
         {"role": "user",   "content": prompt},
     ]
 
-    # 1. Try explicitly configured provider
-    if base_url and model:
+    # Call Groq API (single provider, no waterfall)
+    if api_key and base_url and model:
         raw = _try_chat(base_url, model, api_key, messages)
         if raw:
-            print(f"[AI FIXER] ✅ {base_url} / {model}")
+            print(f"[AI FIXER] ✅ Groq / {model}")
             return _parse_response(raw)
-        print(f"[AI FIXER] ❌ Configured provider failed, auto-discovering...")
+        print("[AI FIXER] ❌ Groq API call failed — using deterministic fallback.")
+    else:
+        print("[AI FIXER] ⚠️  API_KEY/API_BASE_URL/MODEL_NAME not set — using deterministic fallback.")
 
-    # 2. Auto-discover
-    for c_url, c_model in _CANDIDATES:
-        if c_url == base_url and c_model == model:
-            continue
-        raw = _try_chat(c_url, c_model, api_key, messages, timeout=15)
-        if raw:
-            print(f"[AI FIXER] ✅ Auto-discovered: {c_url} / {c_model}")
-            os.environ["OLLAMA_BASE_URL"] = c_url
-            os.environ["OLLAMA_MODEL"]    = c_model
-            return _parse_response(raw)
-
-    # 3. Deterministic fallback
-    print("[AI FIXER] ⚠️  All providers failed — deterministic fallback.")
+    # Deterministic fallback (no API call)
     return _fallback_fix(code)
 
 
