@@ -109,10 +109,11 @@ def _get_config():
     """Read Groq API credentials from environment at call-time (hot-reload safe)."""
     load_dotenv(_ENV_PATH, override=True)
     return (
-        os.getenv("API_KEY",      "").strip(),                               # Groq API key
-        os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1").strip(), # Groq base URL
-        os.getenv("MODEL_NAME",   "llama-3.3-70b-versatile").strip(),        # Groq model
+        os.getenv("API_KEY"),       # Groq API key — None if not set
+        os.getenv("API_BASE_URL"),  # Groq base URL — None if not set
+        os.getenv("MODEL_NAME"),    # Groq model    — None if not set
     )
+
 
 
 
@@ -166,9 +167,21 @@ def _parse_response(raw: str) -> dict:
 def generate_fix(bug_report: str, logs, code: str) -> dict:
     """
     Generate a structured security fix using Groq API.
-    Always returns a dict: { vulnerability, severity, fixed_code, raw }
+    Raises EnvironmentError if API_KEY/API_BASE_URL/MODEL_NAME are not set.
+    Returns a dict: { vulnerability, severity, fixed_code, raw }
     """
     api_key, base_url, model = _get_config()
+
+    # Strict validation — no silent fallback
+    missing = [name for name, val in [
+        ("API_KEY",      api_key),
+        ("API_BASE_URL", base_url),
+        ("MODEL_NAME",   model),
+    ] if not val]
+    if missing:
+        raise EnvironmentError(
+            f"[AI FIXER] Missing required environment variables: {', '.join(missing)}"
+        )
 
     log_str = "\n".join(logs) if isinstance(logs, list) else (logs or "(no logs)")
     prompt  = _USER_TEMPLATE.format(
@@ -181,18 +194,18 @@ def generate_fix(bug_report: str, logs, code: str) -> dict:
         {"role": "user",   "content": prompt},
     ]
 
-    # Call Groq API (single provider, no waterfall)
-    if api_key and base_url and model:
-        raw = _try_chat(base_url, model, api_key, messages)
-        if raw:
-            print(f"[AI FIXER] ✅ Groq / {model}")
-            return _parse_response(raw)
-        print("[AI FIXER] ❌ Groq API call failed — using deterministic fallback.")
-    else:
-        print("[AI FIXER] ⚠️  API_KEY/API_BASE_URL/MODEL_NAME not set — using deterministic fallback.")
+    # Call Groq API — single provider, no waterfall, no fallback
+    raw = _try_chat(base_url, model, api_key, messages)
+    if raw:
+        print(f"[AI FIXER] ✅ Groq / {model}")
+        return _parse_response(raw)
 
-    # Deterministic fallback (no API call)
-    return _fallback_fix(code)
+    # API call failed — raise so caller knows explicitly
+    raise RuntimeError(
+        f"[AI FIXER] Groq API call failed (base_url={base_url}, model={model}). "
+        "Check your API_KEY and network connectivity."
+    )
+
 
 
 def _fallback_fix(code: str) -> dict:

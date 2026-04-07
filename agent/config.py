@@ -19,18 +19,25 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class LLMConfig:
-    """Groq-compatible LLM settings (OpenAI-compatible API)."""
-    model: str = field(default_factory=lambda: os.environ.get("MODEL_NAME", "llama-3.3-70b-versatile"))
-    base_url: str = field(default_factory=lambda: os.environ.get("API_BASE_URL", "https://api.groq.com/openai/v1"))
+    """Groq-compatible LLM settings. All values come from .env — no defaults."""
+    model: str = field(default_factory=lambda: os.environ["MODEL_NAME"])       # no fallback
+    base_url: str = field(default_factory=lambda: os.environ["API_BASE_URL"])  # no fallback
+    api_key: str = field(default_factory=lambda: os.environ["API_KEY"])        # no fallback
     temperature: float = 0.3
     max_tokens: int = 2048
-    api_key: str = field(default_factory=lambda: os.environ.get("API_KEY", ""))
 
     def validate(self) -> None:
-        if not self.api_key:
-            raise ValueError(
-                "API_KEY is not set. "
-                "Set it in your .env file or export API_KEY=<your-groq-key>"
+        missing = [
+            name for name, val in [
+                ("API_KEY",      self.api_key),
+                ("API_BASE_URL", self.base_url),
+                ("MODEL_NAME",   self.model),
+            ] if not val
+        ]
+        if missing:
+            raise EnvironmentError(
+                f"[FATAL] Missing required environment variables: {', '.join(missing)}\n"
+                f"Set them in your .env file."
             )
 
 

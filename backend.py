@@ -35,9 +35,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 # ── Load .env file ───────────────────────────────────────────────────────────
 
 def load_dotenv(path: str = ".env") -> None:
-    """Load environment variables from .env file."""
+    """Load environment variables from .env file (always overrides existing vars)."""
     env_path = Path(path)
     if not env_path.exists():
+        print(f"[CONFIG] WARNING: .env file not found at {Path(path).resolve()}")
         return
     for line in env_path.read_text().splitlines():
         line = line.strip()
@@ -45,19 +46,37 @@ def load_dotenv(path: str = ".env") -> None:
             continue
         if "=" in line:
             key, _, value = line.partition("=")
-            os.environ.setdefault(key.strip(), value.strip())
+            os.environ[key.strip()] = value.strip()  # Always override — .env is source of truth
 
 load_dotenv()
 
-# ── Configuration ────────────────────────────────────────────────────────────
+# ── Configuration — strict, no fallbacks ─────────────────────────────────────
+# All three vars MUST be present in .env. Missing any will abort startup.
 
-API_KEY = os.getenv("API_KEY", "")
-API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
+API_KEY      = os.getenv("API_KEY")      # Groq API key
+API_BASE_URL = os.getenv("API_BASE_URL") # Must be https://api.groq.com/openai/v1
+MODEL_NAME   = os.getenv("MODEL_NAME")  # Must be llama-3.3-70b-versatile
 
-if not API_KEY:
-    print("⚠️  WARNING: API_KEY not set. LLM calls will fail.")
-    print("   Set it in .env or export API_KEY=...")
+# ── Debug startup log ──────────────────────────────────────────────────────────
+print(f"[CONFIG] Using API BASE: {API_BASE_URL}")
+print(f"[CONFIG] Using MODEL:    {MODEL_NAME}")
+print(f"[CONFIG] API KEY LOADED: {'YES' if API_KEY else 'NO — ABORTING'}")
+
+# ── Strict validation — crash immediately if any required var is missing ───────
+_missing = [name for name, val in [
+    ("API_KEY",      API_KEY),
+    ("API_BASE_URL", API_BASE_URL),
+    ("MODEL_NAME",   MODEL_NAME),
+] if not val]
+
+if _missing:
+    raise EnvironmentError(
+        f"\n\n[FATAL] Missing required environment variables: {', '.join(_missing)}\n"
+        f"Set them in your .env file:\n"
+        f"  API_KEY=<your-groq-key>\n"
+        f"  API_BASE_URL=https://api.groq.com/openai/v1\n"
+        f"  MODEL_NAME=llama-3.3-70b-versatile\n"
+    )
 
 # ── Imports from project ─────────────────────────────────────────────────────
 
@@ -70,11 +89,11 @@ from env.environment import VulnArenaEnv
 # Shared instance — stateful, persists between /reset and /step calls.
 vuln_arena_env = VulnArenaEnv()
 
-# ── LLM Client ───────────────────────────────────────────────────────────────
+# ── LLM Client — initialized from validated env vars, zero defaults ───────────
 
 client = OpenAI(
-    base_url=API_BASE_URL,
     api_key=API_KEY,
+    base_url=API_BASE_URL,
 )
 
 # Valid values for action validation
@@ -566,9 +585,11 @@ def main():
     args = parser.parse_args()
 
     print(f"🛡️  Triage API Server starting on http://localhost:{args.port}")
-    print(f"   Model:  {MODEL_NAME}")
-    print(f"   API:    {API_BASE_URL}")
-    print(f"   Key:    {'✓ configured' if API_KEY else '✗ MISSING'}")
+    print()
+    print(f"[CONFIG] Using API BASE: {API_BASE_URL}")
+    print(f"[CONFIG] Using MODEL:    {MODEL_NAME}")
+    print(f"[CONFIG] API KEY LOADED: {'YES' if API_KEY else 'NO'}")
+    print()
     print(f"   Tasks:  {len(ALL_TASKS)} available")
     print()
     print("   POST /api/triage          — custom report")
