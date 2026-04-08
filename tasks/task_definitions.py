@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from tasks.graders import grade as task_grader
 from env.tasks import (
     TASK_EASY_INFO_DISCLOSURE,
     TASK_EASY_RCE,
@@ -56,6 +57,7 @@ def _task_group(
         "name": name,
         "difficulty": difficulty,
         "description": description,
+        "grader": task_grader,
         "tickets": [
             _ticket(source_task, index + 1, task_id)
             for index, source_task in enumerate(source_tasks)
@@ -99,3 +101,7 @@ TASKS: dict[str, dict[str, Any]] = {
         ],
     ),
 }
+
+TASK_EASY = TASKS["task_easy"]
+TASK_MEDIUM = TASKS["task_medium"]
+TASK_HARD = TASKS["task_hard"]
