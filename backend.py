@@ -628,10 +628,10 @@ def state(request: Request):
 
 
 @app.post("/reset")
-def reset(req: ResetRequest, request: Request):
+def reset(request: Request, req: ResetRequest | None = None):
     _enforce_rate_limit(_client_ip(request), "env", GENERAL_RATE_LIMIT, GENERAL_RATE_WINDOW_SECONDS)
     session_id, env, created = _get_session_env(request)
-    task_name = req.task_name if req.task_name in {"easy", "medium", "hard"} else "easy"
+    task_name = req.task_name if req and req.task_name in {"easy", "medium", "hard"} else "easy"
     return _json_response(env.reset(task_name), request, session_id=session_id, session_created=created)
 
 
