@@ -4,7 +4,7 @@ import { Terminal, ShieldAlert, Cpu, Sparkles, Activity, RefreshCw, Layers, Chec
 
 const Editor = lazy(() => import('@monaco-editor/react'));
 
-const API_BASE = ""; // Routed via Vite proxy → vaibhav's backend on port 5001
+const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 const ACTIONS = [
   "analyze_report",

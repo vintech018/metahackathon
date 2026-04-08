@@ -3,5 +3,5 @@ uvicorn
 pydantic
 openai
 requests
-gym
 PyPDF2
+python-dotenv

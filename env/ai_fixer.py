@@ -166,22 +166,20 @@ def _parse_response(raw: str) -> dict:
 
 def generate_fix(bug_report: str, logs, code: str) -> dict:
     """
-    Generate a structured security fix using Groq API.
-    Raises EnvironmentError if API_KEY/API_BASE_URL/MODEL_NAME are not set.
-    Returns a dict: { vulnerability, severity, fixed_code, raw }
+    Generate a structured security fix using Groq API when configured.
+    Falls back to a deterministic local fix when credentials are missing or the
+    provider call fails so the public demo remains usable.
     """
     api_key, base_url, model = _get_config()
 
-    # Strict validation — no silent fallback
     missing = [name for name, val in [
         ("API_KEY",      api_key),
         ("API_BASE_URL", base_url),
         ("MODEL_NAME",   model),
     ] if not val]
     if missing:
-        raise EnvironmentError(
-            f"[AI FIXER] Missing required environment variables: {', '.join(missing)}"
-        )
+        print(f"[AI FIXER] Falling back to local heuristics; missing: {', '.join(missing)}")
+        return _fallback_fix(code)
 
     log_str = "\n".join(logs) if isinstance(logs, list) else (logs or "(no logs)")
     prompt  = _USER_TEMPLATE.format(
@@ -200,11 +198,8 @@ def generate_fix(bug_report: str, logs, code: str) -> dict:
         print(f"[AI FIXER] ✅ Groq / {model}")
         return _parse_response(raw)
 
-    # API call failed — raise so caller knows explicitly
-    raise RuntimeError(
-        f"[AI FIXER] Groq API call failed (base_url={base_url}, model={model}). "
-        "Check your API_KEY and network connectivity."
-    )
+    print(f"[AI FIXER] Falling back after provider error (base_url={base_url}, model={model}).")
+    return _fallback_fix(code)
 
 
 

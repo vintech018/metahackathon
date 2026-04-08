@@ -1,30 +1,71 @@
-# VulnArena AI - Autonomous Security Triage & Exploitation Simulator
+---
+title: VulnArena AI
+emoji: 🛡️
+colorFrom: gray
+colorTo: red
+sdk: docker
+app_port: 7860
+pinned: false
+---
 
-A fully compliant OpenEnv environment designed to simulate real-world bug bounty and security triage workflows. The environment allows for evaluating AI agents' ability to inspect code, analyze logs, verify vulnerabilities, estimate severity, and formulate exploits.
+# VulnArena AI
 
-## Features
-- **3 Challenge Tasks**: Easy (SQL Injection), Medium (Memory DoS), Hard (XSS to Privilege Escalation).
-- **Extensive Typed Observations**: Accurate and fully typed observation models strictly aligning with OpenEnv spec.
-- **RESTful Endpoints**: Full API integration for `/reset`, `/step`, and `/state` state retrieval.
-- **Deterministic Evaluation Grader**: Implements standard correctness and completion criteria via penalizations and robust rewards mechanics.
+VulnArena AI is a hackathon demo for interactive vulnerability triage. The app
+combines a React frontend with a Python backend that simulates a multi-step
+security analysis pipeline across bug reports, logs, and code snippets.
 
-## Setup & Run locally
+## What the demo includes
 
-### Via Docker
-Build the environment container:
+- Interactive VulnArena pipeline with isolated browser sessions
+- Deterministic fallback mode when no external model credentials are configured
+- Optional OpenAI-compatible triage endpoints for richer report scoring
+- Docker-based deployment for Hugging Face Spaces
+
+## Hugging Face Space deployment
+
+This repository is configured as a Docker Space.
+
+Optional secrets for live model-backed behavior:
+
+- `API_KEY`
+- `API_BASE_URL`
+- `MODEL_NAME`
+
+If those secrets are omitted, the Space still boots and runs in heuristic
+fallback mode so the hackathon demo remains usable.
+
+## Local development
+
+Backend:
+
 ```bash
-docker build -t vulnarena .
+pip install -r requirements.txt
+python backend.py --port 5001
 ```
 
-Run the container:
+Frontend dev server:
+
 ```bash
-docker run -p 8000:8000 vulnarena
+cd frontend
+npm ci
+npm run dev
 ```
 
-### Validate OpenEnv Requirements
-To evaluate the tasks by running an AI test loop with strict compliance:
+Production-style frontend build:
+
 ```bash
-export API_BASE_URL="http://localhost:8000"
-export MODEL_NAME="gpt-4"
-python inference.py
+cd frontend
+npm ci
+npm run build
 ```
+
+## API surface
+
+- `GET /api/health`
+- `GET /api/tasks`
+- `POST /reset`
+- `POST /step`
+- `GET /state`
+
+The public triage endpoints can be enabled explicitly with
+`ENABLE_PUBLIC_TRIAGE_API=true`.

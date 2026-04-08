@@ -12,9 +12,10 @@ Usage:
     python inference.py
 
 Environment variables:
-    API_BASE_URL  — OpenAI-compatible API base URL
-    MODEL_NAME    — Model identifier (e.g., llama-3.3-70b-versatile)
-    API_KEY       — API key (falls back to HF_TOKEN if not set)
+    API_BASE_URL    — OpenAI-compatible API base URL
+    MODEL_NAME      — Model identifier
+    HF_TOKEN        — Hugging Face / provider token (no default)
+    LOCAL_IMAGE_NAME — Optional local image reference when using from_docker_image()
 """
 
 import json
@@ -52,9 +53,12 @@ _load_dotenv()
 #  Configuration
 # ─────────────────────────────────────────────────────────────────────────────
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.groq.com/openai/v1")
-MODEL_NAME = os.environ.get("MODEL_NAME", "llama-3.3-70b-versatile")
-API_KEY = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN", "")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
+HF_TOKEN = os.getenv("HF_TOKEN")
+
+# Optional - if you use from_docker_image():
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
 FALLBACK_ACTION = {
     "severity": "low",
@@ -287,7 +291,18 @@ def main() -> None:
     """
     # ── Initialize ────────────────────────────────────────────────────────
     env = TriageEnv()
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    api_key = HF_TOKEN
+    if not api_key and (
+        API_BASE_URL.startswith("http://localhost")
+        or API_BASE_URL.startswith("http://127.0.0.1")
+        or LOCAL_IMAGE_NAME
+    ):
+        api_key = "local-no-auth"
+
+    if not api_key:
+        raise EnvironmentError("HF_TOKEN must be set for remote inference endpoints.")
+
+    client = OpenAI(base_url=API_BASE_URL, api_key=api_key)
 
     # ── Reset environment ─────────────────────────────────────────────────
     obs = env.reset()
@@ -332,15 +347,14 @@ def main() -> None:
     reward_fmt = f"{reward:.2f}"
     done_str = "true" if done else "false"
     error_str = error_msg if error_msg else "null"
-    score = reward
-    success = score >= 0.6
+    success = reward >= 0.6
     success_str = "true" if success else "false"
 
     # ── Log: STEP ─────────────────────────────────────────────────────────
     print(f"[STEP] step=1 action={action_json} reward={reward_fmt} done={done_str} error={error_str}")
 
     # ── Log: END ──────────────────────────────────────────────────────────
-    print(f"[END] success={success_str} steps=1 score={reward_fmt} rewards={reward_fmt}")
+    print(f"[END] success={success_str} steps=1 rewards={reward_fmt}")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ environment:
   name: "VulnArena AI"
   description: "Autonomous Security Triage & Exploitation Simulator"
   ports:
-    - 8000
+    - 7860
 endpoints:
   reset: "/reset"
   step: "/step"

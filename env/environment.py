@@ -1,7 +1,3 @@
-try:
-    import gymnasium as gym
-except ImportError:
-    import gym  # fallback for older installs
 from typing import Dict, Any, Tuple
 from .state import Observation
 from .actions import Action
@@ -179,4 +175,3 @@ class VulnArenaEnv:
 
     def state(self) -> Dict[str, Any]:
         return self.obs.dict()
-

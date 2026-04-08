@@ -1,121 +1,246 @@
 #!/usr/bin/env python3
 """
-Backend API Server — Connects React frontend to Groq LLM + TriageEnv.
+Deployment backend for the VulnArena AI demo.
 
-Endpoints:
-    POST /api/triage          — Triage a custom vulnerability report via LLM
-    POST /api/triage/random   — Triage a random task from the task registry
-    GET  /api/tasks           — List all available tasks
-    GET  /api/health          — Health check
+This server powers two public-facing experiences:
+1. The multi-step VulnArena environment used by the React frontend.
+2. Optional report triage endpoints that call an OpenAI-compatible model.
 
-Architecture:
-    Frontend → Backend API → Groq LLM (llama-3.3-70b) → TriageEnv → Scored JSON
-
-Security:
-    - API key loaded from environment variable only
-    - Never exposed to frontend
-    - CORS restricted
+The deployed demo is intentionally defensive:
+- frontend assets are served by the same process as the API
+- each browser session gets an isolated environment instance
+- large request bodies are rejected early
+- expensive endpoints are rate limited
+- the app still works without external model credentials by falling back to
+  deterministic heuristics
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import random
 import re
 import sys
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+import time
+import uuid
+from collections import defaultdict, deque
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
-from urllib.parse import urlparse, parse_qs
 
-# Ensure project root on path
-sys.path.insert(0, str(Path(__file__).parent))
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from openai import OpenAI
+from pydantic import BaseModel, Field
 
-# ── Load .env file ───────────────────────────────────────────────────────────
+
+APP_ROOT = Path(__file__).resolve().parent
+FRONTEND_DIST = APP_ROOT / "frontend" / "dist"
+FRONTEND_INDEX = FRONTEND_DIST / "index.html"
+
+# Ensure project root is importable for local package-style imports.
+sys.path.insert(0, str(APP_ROOT))
+
+from env.environment import VulnArenaEnv
+from env.tasks import ALL_TASKS
+from env.triage_env import TriageEnv
+
 
 def load_dotenv(path: str = ".env") -> None:
-    """Load environment variables from .env file (always overrides existing vars)."""
-    env_path = Path(path)
+    """Load environment variables from a local .env file if it exists."""
+    env_path = APP_ROOT / path
     if not env_path.exists():
-        print(f"[CONFIG] WARNING: .env file not found at {Path(path).resolve()}")
         return
+
     for line in env_path.read_text().splitlines():
         line = line.strip()
-        if not line or line.startswith("#"):
+        if not line or line.startswith("#") or "=" not in line:
             continue
-        if "=" in line:
-            key, _, value = line.partition("=")
-            os.environ[key.strip()] = value.strip()  # Always override — .env is source of truth
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip())
+
 
 load_dotenv()
 
-# ── Configuration — strict, no fallbacks ─────────────────────────────────────
-# All three vars MUST be present in .env. Missing any will abort startup.
 
-API_KEY      = os.getenv("API_KEY")      # Groq API key
-API_BASE_URL = os.getenv("API_BASE_URL") # Must be https://api.groq.com/openai/v1
-MODEL_NAME   = os.getenv("MODEL_NAME")  # Must be llama-3.3-70b-versatile
+API_KEY = os.getenv("API_KEY", "").strip()
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1").strip()
+MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile").strip()
 
-# ── Debug startup log ──────────────────────────────────────────────────────────
-print(f"[CONFIG] Using API BASE: {API_BASE_URL}")
-print(f"[CONFIG] Using MODEL:    {MODEL_NAME}")
-print(f"[CONFIG] API KEY LOADED: {'YES' if API_KEY else 'NO — ABORTING'}")
+LLM_ENABLED = all((API_KEY, API_BASE_URL, MODEL_NAME))
+TRIAGE_API_ENABLED = os.getenv("ENABLE_PUBLIC_TRIAGE_API", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+MAX_BODY_BYTES = int(os.getenv("MAX_BODY_BYTES", "131072"))
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "1800"))
+GENERAL_RATE_LIMIT = int(os.getenv("GENERAL_RATE_LIMIT", "120"))
+GENERAL_RATE_WINDOW_SECONDS = int(os.getenv("GENERAL_RATE_WINDOW_SECONDS", "300"))
+EXPENSIVE_RATE_LIMIT = int(os.getenv("EXPENSIVE_RATE_LIMIT", "8"))
+EXPENSIVE_RATE_WINDOW_SECONDS = int(os.getenv("EXPENSIVE_RATE_WINDOW_SECONDS", "600"))
+SESSION_COOKIE = "vulnarena_session"
 
-# ── Strict validation — crash immediately if any required var is missing ───────
-_missing = [name for name, val in [
-    ("API_KEY",      API_KEY),
-    ("API_BASE_URL", API_BASE_URL),
-    ("MODEL_NAME",   MODEL_NAME),
-] if not val]
+DEFAULT_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+extra_origins = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
 
-if _missing:
-    raise EnvironmentError(
-        f"\n\n[FATAL] Missing required environment variables: {', '.join(_missing)}\n"
-        f"Set them in your .env file:\n"
-        f"  API_KEY=<your-groq-key>\n"
-        f"  API_BASE_URL=https://api.groq.com/openai/v1\n"
-        f"  MODEL_NAME=llama-3.3-70b-versatile\n"
-    )
+client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL) if LLM_ENABLED else None
 
-# ── Imports from project ─────────────────────────────────────────────────────
 
-from openai import OpenAI
-from env.triage_env import TriageEnv
-from env.tasks import ALL_TASKS
-from env.environment import VulnArenaEnv
-
-# ── VulnArena Environment (singleton for jaspreet frontend) ──────────────────
-# Shared instance — stateful, persists between /reset and /step calls.
-vuln_arena_env = VulnArenaEnv()
-
-# ── LLM Client — initialized from validated env vars, zero defaults ───────────
-
-client = OpenAI(
-    api_key=API_KEY,
-    base_url=API_BASE_URL,
-)
-
-# Valid values for action validation
 VALID_SEVERITIES = {"critical", "high", "medium", "low"}
 VALID_COMPONENTS = {"auth", "database", "api", "frontend", "network"}
 
 FALLBACK_ACTION = {
     "severity": "low",
     "component": "api",
-    "remediation": "apply security best practices",
+    "remediation": "Apply input validation and security best practices.",
 }
-
-# ── Prompt Engineering ───────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = (
     "You are a senior security engineer specializing in vulnerability triage. "
-    "You must produce precise, security-focused, and actionable outputs."
+    "Produce precise, security-focused, and actionable JSON only."
 )
 
 
+SESSION_LOCK = threading.Lock()
+SESSIONS: dict[str, dict[str, Any]] = {}
+RATE_LIMIT_LOCK = threading.Lock()
+RATE_BUCKETS: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+
+
+class ResetRequest(BaseModel):
+    task_name: str = "easy"
+
+
+class StepRequest(BaseModel):
+    action: str
+    report_text: str | None = None
+    logs: list[str] | None = None
+    code_snippet: str | None = None
+
+
+class TriageRequest(BaseModel):
+    report: str = Field(min_length=1, max_length=16000)
+
+
+class RandomTriageRequest(BaseModel):
+    task_id: str | None = Field(default=None, max_length=128)
+
+
+app = FastAPI(title="VulnArena AI", version="1.0.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[*DEFAULT_ALLOWED_ORIGINS, *extra_origins],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
+
+
+def _now() -> float:
+    return time.monotonic()
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _enforce_rate_limit(subject: str, bucket: str, limit: int, window_seconds: int) -> None:
+    key = (bucket, subject)
+    current = _now()
+    with RATE_LIMIT_LOCK:
+        q = RATE_BUCKETS[key]
+        while q and current - q[0] > window_seconds:
+            q.popleft()
+        if len(q) >= limit:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded for {bucket}. Please wait and try again.",
+            )
+        q.append(current)
+
+
+def _prune_sessions_locked() -> None:
+    cutoff = time.time() - SESSION_TTL_SECONDS
+    expired = [sid for sid, data in SESSIONS.items() if data["last_seen"] < cutoff]
+    for sid in expired:
+        del SESSIONS[sid]
+
+
+def _get_session_env(request: Request) -> tuple[str, VulnArenaEnv, bool]:
+    session_id = request.cookies.get(SESSION_COOKIE, "")
+    created = False
+
+    with SESSION_LOCK:
+        _prune_sessions_locked()
+        if not re.fullmatch(r"[0-9a-f]{32}", session_id):
+            session_id = uuid.uuid4().hex
+            created = True
+
+        session = SESSIONS.get(session_id)
+        if session is None:
+            session = {"env": VulnArenaEnv(), "last_seen": time.time()}
+            SESSIONS[session_id] = session
+            created = True
+        else:
+            session["last_seen"] = time.time()
+
+    return session_id, session["env"], created
+
+
+def _json_response(
+    payload: Any,
+    request: Request,
+    session_id: str | None = None,
+    session_created: bool = False,
+    status_code: int = 200,
+) -> JSONResponse:
+    response = JSONResponse(payload, status_code=status_code)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "same-origin"
+    if session_id and session_created:
+        response.set_cookie(
+            SESSION_COOKIE,
+            session_id,
+            max_age=SESSION_TTL_SECONDS,
+            httponly=True,
+            samesite="lax",
+        )
+    return response
+
+
+def _validate_step_payload(req: StepRequest) -> None:
+    report = req.report_text or ""
+    code = req.code_snippet or ""
+    logs = req.logs or []
+    joined_logs = "\n".join(logs)
+
+    if len(report) > 16000:
+        raise HTTPException(status_code=413, detail="Bug report is too large.")
+    if len(code) > 24000:
+        raise HTTPException(status_code=413, detail="Code snippet is too large.")
+    if len(joined_logs) > 16000:
+        raise HTTPException(status_code=413, detail="Log payload is too large.")
+
+
 def build_user_prompt(report: str) -> str:
-    """Build the user prompt for the LLM."""
     return (
         "Analyze the following vulnerability report and return STRICT JSON only.\n\n"
         f"{report}\n\n"
@@ -132,7 +257,7 @@ def build_user_prompt(report: str) -> str:
         "- When applicable, mention: input validation, sanitize, parameterized queries, "
         "prepared statements, token management, session security, CSP (content security policy), "
         "access control, rate limiting, cookie security (HttpOnly, SameSite)\n"
-        "- If the report describes a chained/multi-step attack, mention that multiple "
+        "- If the report describes a chained or multi-step attack, mention that multiple "
         "vulnerabilities need combined remediation\n"
         "- Do not include explanations\n"
         "- Do not include markdown\n"
@@ -140,36 +265,7 @@ def build_user_prompt(report: str) -> str:
     )
 
 
-# ── LLM Call ─────────────────────────────────────────────────────────────────
-
-def call_llm(report: str) -> dict[str, str]:
-    """
-    Send the report to the Groq LLM and return parsed action.
-    Falls back to default action on any failure.
-    """
-    try:
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            temperature=0.2,
-            max_tokens=300,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": build_user_prompt(report)},
-            ],
-        )
-        raw = response.choices[0].message.content or ""
-        return safe_json_parse(raw)
-    except Exception as e:
-        print(f"[LLM ERROR] {e}")
-        return dict(FALLBACK_ACTION)
-
-
 def safe_json_parse(text: str) -> dict[str, str]:
-    """
-    Extract and validate JSON from LLM response.
-    Handles code fences, raw JSON, and malformed output.
-    """
-    # Try markdown fenced JSON
     fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if fence:
         try:
@@ -177,7 +273,6 @@ def safe_json_parse(text: str) -> dict[str, str]:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Try raw JSON object
     brace = re.search(r"\{.*\}", text, re.DOTALL)
     if brace:
         try:
@@ -185,24 +280,20 @@ def safe_json_parse(text: str) -> dict[str, str]:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Try full text
     try:
         return validate_action(json.loads(text.strip()))
     except (json.JSONDecodeError, ValueError):
-        pass
-
-    return dict(FALLBACK_ACTION)
+        return dict(FALLBACK_ACTION)
 
 
-def validate_action(parsed: dict) -> dict[str, str]:
-    """Validate and normalize severity/component/remediation."""
+def validate_action(parsed: dict[str, Any]) -> dict[str, str]:
     severity = str(parsed.get("severity", "low")).strip().lower()
     if severity not in VALID_SEVERITIES:
-        severity = "low"
+        severity = FALLBACK_ACTION["severity"]
 
     component = str(parsed.get("component", "api")).strip().lower()
     if component not in VALID_COMPONENTS:
-        component = "api"
+        component = FALLBACK_ACTION["component"]
 
     remediation = str(parsed.get("remediation", "")).strip()
     if not remediation:
@@ -215,151 +306,184 @@ def validate_action(parsed: dict) -> dict[str, str]:
     }
 
 
-# ── Heuristic Evaluator ──────────────────────────────────────────────────────
-
 def infer_expected(report: str) -> tuple[str, str, str, list[str]]:
-    """
-    Analyze a user-provided report and infer ground-truth labels for scoring.
-
-    Returns (severity, component, difficulty, remediation_keywords).
-
-    This is critical for custom reports where we don't have pre-labeled data.
-    The heuristic examines the report text for vulnerability indicators and
-    returns appropriate expected values so the TriageEnv grading system
-    produces meaningful, realistic scores.
-    """
     text = report.lower()
 
-    # ── SQL Injection ────────────────────────────────────────────────────
-    if any(kw in text for kw in ("sql injection", "sqli", "union select", "' or 1=1",
-                                   "parameterized", "sql query", "concatenat")):
-        difficulty = "easy"
-        if "union" in text or "credential" in text or "dump" in text:
-            difficulty = "hard"
+    if any(
+        kw in text
+        for kw in ("sql injection", "sqli", "union select", "' or 1=1", "parameterized", "sql query", "concatenat")
+    ):
+        difficulty = "hard" if any(kw in text for kw in ("union", "credential", "dump")) else "easy"
         return "critical", "database", difficulty, [
-            "parameterized", "prepared statements", "sanitize", "input validation",
-        ]
-
-    # ── Remote Code Execution / Command Injection ────────────────────────
-    if any(kw in text for kw in ("rce", "remote code execution",
-                                   "command injection", "reverse shell",
-                                   "file upload", "shell.php", "os.system")):
-        return "critical", "api", "hard", [
-            "file type validation", "whitelist", "sandbox", "non-executable",
-        ]
-
-    # ── SSRF ─────────────────────────────────────────────────────────────
-    if any(kw in text for kw in ("ssrf", "server-side request",
-                                   "169.254", "metadata", "fetch-url",
-                                   "internal service")):
-        return "critical", "network", "hard", [
-            "allowlist", "ssrf protection", "metadata", "network segmentation",
+            "parameterized queries",
+            "prepared statements",
             "input validation",
+            "least-privilege database access",
         ]
 
-    # ── XSS (Stored / Reflected) ─────────────────────────────────────────
-    if any(kw in text for kw in ("xss", "cross-site scripting",
-                                   "<script>", "stored xss", "reflected xss",
-                                   "document.cookie")):
-        severity = "critical" if "stored" in text or "session" in text else "high"
-        difficulty = "hard" if ("chain" in text or "→" in text or "cookie" in text) else "medium"
-        return severity, "frontend", difficulty, [
-            "sanitize", "encode", "csp", "content security policy", "httponly",
-        ]
-
-    # ── CSRF ─────────────────────────────────────────────────────────────
-    if any(kw in text for kw in ("csrf", "cross-site request forgery",
-                                   "anti-csrf", "forged request")):
-        return "medium", "frontend", "medium", [
-            "csrf token", "samesite", "origin validation", "anti-csrf",
-        ]
-
-    # ── Authentication Bypass / Broken Auth ──────────────────────────────
-    if any(kw in text for kw in ("authentication bypass", "broken auth",
-                                   "jwt", "token reuse", "password reset",
-                                   "brute-force", "credential rotation",
-                                   "privilege escalation", "role cookie")):
-        severity = "critical" if "privilege escalation" in text or "admin" in text else "high"
-        difficulty = "hard" if "chain" in text or "→" in text else "medium"
-        return severity, "auth", difficulty, [
-            "token", "session", "invalidat", "rate limiting",
-            "access control",
-        ]
-
-    # ── IDOR / Access Control ────────────────────────────────────────────
-    if any(kw in text for kw in ("idor", "insecure direct object",
-                                   "access control", "authorization bypass",
-                                   "horizontal privilege")):
-        return "high", "api", "medium", [
-            "access control", "authorization", "validate", "ownership",
-        ]
-
-    # ── Information Disclosure ───────────────────────────────────────────
-    if any(kw in text for kw in ("information disclosure", "verbose error",
-                                   "stack trace", "debug mode", "error message",
-                                   "internal path")):
-        return "low", "api", "easy", [
-            "error handling", "disable debug", "sanitize",
-        ]
-
-    # ── Insecure Deserialization ─────────────────────────────────────────
-    if any(kw in text for kw in ("deserialization", "pickle", "yaml.load",
-                                   "unserialize", "marshalling")):
+    if any(
+        kw in text
+        for kw in ("rce", "remote code execution", "command injection", "reverse shell", "file upload", "shell.php", "os.system")
+    ):
         return "critical", "api", "hard", [
-            "safe deserialization", "whitelist", "input validation",
+            "strict allowlists",
+            "sandbox execution",
+            "file type validation",
+            "remove shell execution paths",
         ]
 
-    # ── Path Traversal / LFI / RFI ───────────────────────────────────────
-    if any(kw in text for kw in ("path traversal", "directory traversal",
-                                   "../", "local file inclusion",
-                                   "remote file inclusion", "lfi", "rfi")):
+    if any(kw in text for kw in ("ssrf", "server-side request", "169.254", "metadata", "fetch-url", "internal service")):
+        return "critical", "network", "hard", [
+            "URL allowlists",
+            "private IP blocking",
+            "metadata endpoint protections",
+            "network segmentation",
+        ]
+
+    if any(kw in text for kw in ("xss", "cross-site scripting", "<script>", "stored xss", "reflected xss", "document.cookie")):
+        severity = "critical" if "stored" in text or "session" in text else "high"
+        difficulty = "hard" if any(kw in text for kw in ("chain", "cookie", "→")) else "medium"
+        return severity, "frontend", difficulty, [
+            "output encoding",
+            "input sanitization",
+            "strict CSP",
+            "HttpOnly and SameSite cookies",
+        ]
+
+    if any(kw in text for kw in ("csrf", "cross-site request forgery", "anti-csrf", "forged request")):
+        return "medium", "frontend", "medium", [
+            "anti-CSRF tokens",
+            "SameSite cookies",
+            "Origin and Referer validation",
+        ]
+
+    if any(
+        kw in text
+        for kw in (
+            "authentication bypass",
+            "broken auth",
+            "jwt",
+            "token reuse",
+            "password reset",
+            "brute-force",
+            "credential rotation",
+            "privilege escalation",
+            "role cookie",
+        )
+    ):
+        severity = "critical" if any(kw in text for kw in ("privilege escalation", "admin")) else "high"
+        difficulty = "hard" if any(kw in text for kw in ("chain", "→")) else "medium"
+        return severity, "auth", difficulty, [
+            "token invalidation",
+            "session rotation",
+            "server-side authorization checks",
+            "rate limiting",
+        ]
+
+    if any(kw in text for kw in ("idor", "insecure direct object", "access control", "authorization bypass", "horizontal privilege")):
         return "high", "api", "medium", [
-            "path validation", "whitelist", "sanitize", "chroot",
+            "ownership checks",
+            "server-side authorization",
+            "object-level access control",
         ]
 
-    # ── Open Redirect ────────────────────────────────────────────────────
-    if any(kw in text for kw in ("open redirect", "url redirect",
-                                   "redirect_url", "phishing")):
+    if any(kw in text for kw in ("information disclosure", "verbose error", "stack trace", "debug mode", "error message", "internal path")):
+        return "low", "api", "easy", [
+            "generic error responses",
+            "disable debug mode",
+            "server-side structured logging",
+        ]
+
+    if any(kw in text for kw in ("deserialization", "pickle", "yaml.load", "unserialize", "marshalling")):
+        return "critical", "api", "hard", [
+            "safe deserialization",
+            "schema validation",
+            "allowlists for accepted types",
+        ]
+
+    if any(kw in text for kw in ("path traversal", "directory traversal", "../", "local file inclusion", "remote file inclusion", "lfi", "rfi")):
+        return "high", "api", "medium", [
+            "path normalization",
+            "allowlisted directories",
+            "filesystem sandboxing",
+        ]
+
+    if any(kw in text for kw in ("open redirect", "url redirect", "redirect_url", "phishing")):
         return "medium", "frontend", "easy", [
-            "whitelist", "validate", "redirect",
+            "redirect allowlists",
+            "destination validation",
         ]
 
-    # ── Denial of Service ────────────────────────────────────────────────
-    if any(kw in text for kw in ("denial of service", "dos", "ddos",
-                                   "resource exhaust", "crash", "regex dos")):
+    if any(kw in text for kw in ("denial of service", "dos", "ddos", "resource exhaust", "crash", "regex dos")):
         return "medium", "network", "medium", [
-            "rate limiting", "input validation", "timeout",
+            "request size limits",
+            "timeouts",
+            "resource quotas",
+            "rate limiting",
         ]
 
-    # ── Fallback — Unknown vulnerability ─────────────────────────────────
-    # Parse severity hints from the report itself
-    if any(kw in text for kw in ("critical", "severe", "full compromise",
-                                   "complete access")):
-        return "high", "api", "medium", ["validate", "sanitize"]
+    if any(kw in text for kw in ("critical", "severe", "full compromise", "complete access")):
+        return "high", "api", "medium", ["input validation", "access control", "least privilege"]
 
-    return "medium", "api", "easy", ["validate", "sanitize"]
+    return "medium", "api", "easy", ["input validation", "access control", "logging"]
 
 
-# ── Environment Integration ─────────────────────────────────────────────────
+def build_fallback_action(report: str) -> dict[str, str]:
+    severity, component, _, keywords = infer_expected(report)
+    component_specific = {
+        "database": "Replace string-built queries with parameterized statements and tighten database privileges.",
+        "frontend": "Sanitize untrusted content before rendering and enforce browser-side protections.",
+        "auth": "Invalidate stale credentials, rotate sessions, and enforce server-side authorization.",
+        "network": "Restrict outbound targets, block private address ranges, and isolate sensitive services.",
+        "api": "Validate untrusted input and remove unsafe execution or file access paths.",
+    }
+    tail = ", ".join(keywords[:4])
+    return {
+        "severity": severity,
+        "component": component,
+        "remediation": f"{component_specific.get(component, FALLBACK_ACTION['remediation'])} Prioritize {tail}.",
+    }
+
+
+def call_llm(report: str) -> dict[str, str]:
+    if not client:
+        return build_fallback_action(report)
+
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            temperature=0.2,
+            max_tokens=300,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": build_user_prompt(report)},
+            ],
+        )
+        raw = response.choices[0].message.content or ""
+        return safe_json_parse(raw)
+    except Exception as exc:
+        print(f"[LLM ERROR] {exc}")
+        return build_fallback_action(report)
+
+
+def _clean_info(info: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "task_id": info.get("task_id", "custom"),
+        "difficulty": info.get("difficulty", "medium"),
+        "expected_severity": info.get("expected_severity", ""),
+        "expected_component": info.get("expected_component", ""),
+        "expected_remediation_keywords": info.get("expected_remediation_keywords", []),
+        "agent_severity": info.get("agent_severity", ""),
+        "agent_component": info.get("agent_component", ""),
+        "explanation": info.get("explanation", {}),
+        "confidence": info.get("confidence", 0),
+    }
+
 
 def run_triage_custom(report: str) -> dict[str, Any]:
-    """
-    Full pipeline: report → LLM → heuristic inference → TriageEnv → scored result.
-
-    Uses infer_expected() to derive realistic ground-truth labels from the
-    report text instead of hardcoded defaults. This ensures severity/component
-    matches produce meaningful scores.
-    """
-    # Get LLM action
     action = call_llm(report)
-
-    # Infer expected labels from report content (heuristic evaluator)
     inferred_severity, inferred_component, inferred_difficulty, inferred_keywords = infer_expected(report)
 
-    print(f"  [INFER] severity={inferred_severity} component={inferred_component} "
-          f"difficulty={inferred_difficulty} keywords={inferred_keywords}")
-
-    # Inject custom task with inferred expectations — NO env.reset()
     env = TriageEnv()
     env._current_task = {
         "id": "custom",
@@ -374,15 +498,14 @@ def run_triage_custom(report: str) -> dict[str, Any]:
     env._done = False
     env._step_count = 0
 
-    # Step
     try:
-        obs, reward, done, info = env.step(action)
-    except Exception as e:
+        _, reward, _, info = env.step(action)
+    except Exception as exc:
         return {
             "report": report,
             "action": action,
             "reward": 0.0,
-            "info": {"error": str(e)},
+            "info": {"error": str(exc)},
         }
 
     return {
@@ -391,17 +514,14 @@ def run_triage_custom(report: str) -> dict[str, Any]:
         "reward": round(reward, 4),
         "difficulty": inferred_difficulty,
         "info": _clean_info(info),
+        "mode": "live-llm" if LLM_ENABLED else "heuristic-fallback",
     }
 
 
 def run_triage_task(task_id: str | None = None) -> dict[str, Any]:
-    """
-    Full pipeline using a task from the registry (with known ground truth).
-    If task_id is None, picks a random task.
-    """
     if task_id:
-        task = next((t for t in ALL_TASKS if t["id"] == task_id), None)
-        if not task:
+        task = next((candidate for candidate in ALL_TASKS if candidate["id"] == task_id), None)
+        if task is None:
             return {"error": f"Task '{task_id}' not found"}
     else:
         task = random.choice(ALL_TASKS)
@@ -415,13 +535,13 @@ def run_triage_task(task_id: str | None = None) -> dict[str, Any]:
     env._step_count = 0
 
     try:
-        obs, reward, done, info = env.step(action)
-    except Exception as e:
+        _, reward, _, info = env.step(action)
+    except Exception as exc:
         return {
             "report": report,
             "action": action,
             "reward": 0.0,
-            "info": {"error": str(e)},
+            "info": {"error": str(exc)},
             "id": task["id"],
             "difficulty": task["difficulty"],
         }
@@ -433,177 +553,173 @@ def run_triage_task(task_id: str | None = None) -> dict[str, Any]:
         "action": action,
         "reward": round(reward, 4),
         "info": _clean_info(info),
+        "mode": "live-llm" if LLM_ENABLED else "heuristic-fallback",
     }
 
 
-def _clean_info(info: dict) -> dict:
-    """Make info JSON-serializable and frontend-friendly."""
-    return {
-        "task_id": info.get("task_id", "custom"),
-        "difficulty": info.get("difficulty", "medium"),
-        "expected_severity": info.get("expected_severity", ""),
-        "expected_component": info.get("expected_component", ""),
-        "expected_remediation_keywords": info.get("expected_remediation_keywords", []),
-        "agent_severity": info.get("agent_severity", ""),
-        "agent_component": info.get("agent_component", ""),
-        "explanation": info.get("explanation", {}),
-        "confidence": info.get("confidence", 0),
-    }
+@app.middleware("http")
+async def enforce_request_limits(request: Request, call_next):
+    if request.method in {"POST", "PUT", "PATCH"}:
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_BODY_BYTES:
+                    return _json_response(
+                        {"error": f"Request body exceeds {MAX_BODY_BYTES} bytes."},
+                        request,
+                        status_code=413,
+                    )
+            except ValueError:
+                return _json_response({"error": "Invalid Content-Length header."}, request, status_code=400)
+
+    response = await call_next(request)
+    response.headers.setdefault("Cache-Control", "no-store")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    return response
 
 
-# ── HTTP Server ──────────────────────────────────────────────────────────────
-
-class APIHandler(BaseHTTPRequestHandler):
-    """Handle API requests from the React frontend."""
-
-    def do_OPTIONS(self):
-        """Handle CORS preflight."""
-        self.send_response(200)
-        self._cors_headers()
-        self.end_headers()
-
-    def do_GET(self):
-        path = urlparse(self.path).path
-
-        if path == "/api/health":
-            self._json_response({
-                "status": "ok",
-                "model": MODEL_NAME,
-                "api_configured": bool(API_KEY),
-            })
-        elif path == "/api/tasks":
-            tasks = [
-                {
-                    "id": t["id"],
-                    "difficulty": t["difficulty"],
-                    "report_preview": t["report"][:120] + "...",
-                }
-                for t in ALL_TASKS
-            ]
-            self._json_response(tasks)
-
-        # ── VulnArena routes (jaspreet frontend) ─────────────────────────
-        elif path == "/state":
-            self._json_response({"state": vuln_arena_env.state()})
-
-        elif path == "/reset":
-            # Allow GET /reset as a convenience (resets to 'easy')
-            print("[VULNARENA] GET /reset → easy")
-            state = vuln_arena_env.reset("easy")
-            self._json_response(state)
-
-        else:
-            self.send_error(404, "Not found")
-
-    def do_POST(self):
-        path = urlparse(self.path).path
-
-        # Read body
-        content_length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(content_length).decode("utf-8") if content_length else "{}"
-
-        try:
-            data = json.loads(body) if body else {}
-        except json.JSONDecodeError:
-            self._json_response({"error": "Invalid JSON body"}, status=400)
-            return
-
-        if path == "/api/triage":
-            report = data.get("report", "").strip()
-            if not report:
-                self._json_response({"error": "Missing 'report' field"}, status=400)
-                return
-            print(f"[TRIAGE] Custom report ({len(report)} chars)")
-            result = run_triage_custom(report)
-            self._json_response(result)
-
-        elif path == "/api/triage/random":
-            task_id = data.get("task_id")
-            print(f"[TRIAGE] Task: {task_id or 'random'}")
-            result = run_triage_task(task_id)
-            self._json_response(result)
-
-        # ── VulnArena routes (jaspreet frontend) ─────────────────────────
-        elif path == "/reset":
-            task_name = data.get("task_name", "easy")
-            print(f"[VULNARENA] POST /reset task={task_name}")
-            state = vuln_arena_env.reset(task_name)
-            self._json_response(state)
-
-        elif path == "/step":
-            action = data.get("action", "")
-            print(f"[VULNARENA] POST /step action={action}")
-
-            # Build a simple object to pass custom inputs (if provided)
-            class _CustomReq:
-                report_text = data.get("report_text") or None
-                logs = data.get("logs") or None
-                code_snippet = data.get("code_snippet") or None
-
-            custom_req = _CustomReq() if any([
-                data.get("report_text"), data.get("logs"), data.get("code_snippet")
-            ]) else None
-
-            state_dict, reward, done, info = vuln_arena_env.step(action, custom_req=custom_req)
-            self._json_response({
-                "observation": state_dict,
-                "reward": reward,
-                "done": done,
-                "info": info,
-            })
-
-        else:
-            self.send_error(404, "Not found")
-
-    def _json_response(self, data: Any, status: int = 200) -> None:
-        body = json.dumps(data, indent=2, default=str).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self._cors_headers()
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _cors_headers(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-
-    def log_message(self, fmt, *args):
-        # Cleaner logs
-        msg = fmt % args
-        if "OPTIONS" not in msg:
-            print(f"  {msg}")
+@app.get("/api/health")
+def health(request: Request):
+    return _json_response(
+        {
+            "status": "ok",
+            "frontend_built": FRONTEND_INDEX.exists(),
+            "llm_mode": "live" if LLM_ENABLED else "heuristic-fallback",
+            "public_triage_api": TRIAGE_API_ENABLED,
+        },
+        request,
+    )
 
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+@app.get("/api/tasks")
+def list_tasks(request: Request):
+    tasks = [
+        {
+            "id": task["id"],
+            "difficulty": task["difficulty"],
+            "report_preview": f"{task['report'][:120]}...",
+        }
+        for task in ALL_TASKS
+    ]
+    return _json_response(tasks, request)
 
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Triage API Backend")
-    parser.add_argument("--port", type=int, default=5001, help="Port (default: 5001)")
+
+@app.post("/api/triage")
+def triage_custom(req: TriageRequest, request: Request):
+    if not TRIAGE_API_ENABLED:
+        raise HTTPException(status_code=403, detail="Public triage API is disabled for this deployment.")
+    _enforce_rate_limit(_client_ip(request), "triage", EXPENSIVE_RATE_LIMIT, EXPENSIVE_RATE_WINDOW_SECONDS)
+    return _json_response(run_triage_custom(req.report.strip()), request)
+
+
+@app.post("/api/triage/random")
+def triage_random(req: RandomTriageRequest, request: Request):
+    if not TRIAGE_API_ENABLED:
+        raise HTTPException(status_code=403, detail="Public triage API is disabled for this deployment.")
+    _enforce_rate_limit(_client_ip(request), "triage", EXPENSIVE_RATE_LIMIT, EXPENSIVE_RATE_WINDOW_SECONDS)
+    return _json_response(run_triage_task(req.task_id), request)
+
+
+@app.get("/state")
+def state(request: Request):
+    _enforce_rate_limit(_client_ip(request), "env", GENERAL_RATE_LIMIT, GENERAL_RATE_WINDOW_SECONDS)
+    session_id, env, created = _get_session_env(request)
+    return _json_response({"state": env.state()}, request, session_id=session_id, session_created=created)
+
+
+@app.post("/reset")
+def reset(req: ResetRequest, request: Request):
+    _enforce_rate_limit(_client_ip(request), "env", GENERAL_RATE_LIMIT, GENERAL_RATE_WINDOW_SECONDS)
+    session_id, env, created = _get_session_env(request)
+    task_name = req.task_name if req.task_name in {"easy", "medium", "hard"} else "easy"
+    return _json_response(env.reset(task_name), request, session_id=session_id, session_created=created)
+
+
+@app.post("/step")
+def step(req: StepRequest, request: Request):
+    _validate_step_payload(req)
+    _enforce_rate_limit(_client_ip(request), "env", GENERAL_RATE_LIMIT, GENERAL_RATE_WINDOW_SECONDS)
+    if req.action == "suggest_fix":
+        _enforce_rate_limit(_client_ip(request), "llm-fix", EXPENSIVE_RATE_LIMIT, EXPENSIVE_RATE_WINDOW_SECONDS)
+
+    session_id, env, created = _get_session_env(request)
+    custom_req = None
+    if any((req.report_text, req.logs, req.code_snippet)):
+        custom_req = SimpleNamespace(
+            report_text=req.report_text or None,
+            logs=req.logs if req.logs is not None else None,
+            code_snippet=req.code_snippet or None,
+        )
+
+    try:
+        observation, reward, done, info = env.step(req.action, custom_req=custom_req)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Step execution failed: {exc}") from exc
+
+    return _json_response(
+        {
+            "observation": observation,
+            "reward": reward,
+            "done": done,
+            "info": info,
+        },
+        request,
+        session_id=session_id,
+        session_created=created,
+    )
+
+
+def _resolve_frontend_path(full_path: str) -> Path | None:
+    if not FRONTEND_DIST.exists():
+        return None
+
+    candidate = (FRONTEND_DIST / full_path).resolve()
+    try:
+        candidate.relative_to(FRONTEND_DIST.resolve())
+    except ValueError:
+        return None
+
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+@app.get("/")
+def frontend_root():
+    if FRONTEND_INDEX.exists():
+        return FileResponse(FRONTEND_INDEX)
+    return JSONResponse(
+        {"error": "Frontend build not found. Run the frontend build before starting the server."},
+        status_code=503,
+    )
+
+
+@app.get("/{full_path:path}")
+def frontend_assets(full_path: str):
+    if full_path.startswith(("api/", "reset", "step", "state")):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    asset = _resolve_frontend_path(full_path)
+    if asset:
+        return FileResponse(asset)
+    if FRONTEND_INDEX.exists():
+        return FileResponse(FRONTEND_INDEX)
+    raise HTTPException(status_code=404, detail="Frontend build not found")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run the VulnArena deployment backend.")
+    parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "7860")))
     args = parser.parse_args()
 
-    print(f"🛡️  Triage API Server starting on http://localhost:{args.port}")
-    print()
-    print(f"[CONFIG] Using API BASE: {API_BASE_URL}")
-    print(f"[CONFIG] Using MODEL:    {MODEL_NAME}")
-    print(f"[CONFIG] API KEY LOADED: {'YES' if API_KEY else 'NO'}")
-    print()
-    print(f"   Tasks:  {len(ALL_TASKS)} available")
-    print()
-    print("   POST /api/triage          — custom report")
-    print("   POST /api/triage/random   — random task from registry")
-    print("   GET  /api/tasks           — list all tasks")
-    print("   GET  /api/health          — health check")
-    print()
+    print(f"[BOOT] VulnArena AI listening on http://0.0.0.0:{args.port}")
+    print(f"[BOOT] Frontend dist: {'present' if FRONTEND_INDEX.exists() else 'missing'}")
+    print(f"[BOOT] LLM mode: {'live' if LLM_ENABLED else 'heuristic fallback'}")
+    print(f"[BOOT] Public triage API: {'enabled' if TRIAGE_API_ENABLED else 'disabled'}")
 
-    server = HTTPServer(("0.0.0.0", args.port), APIHandler)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\n🛑 Server stopped.")
-        server.server_close()
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=args.port)
 
 
 if __name__ == "__main__":
