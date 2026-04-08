@@ -45,6 +45,9 @@ FRONTEND_INDEX = FRONTEND_DIST / "index.html"
 # Ensure project root is importable for local package-style imports.
 sys.path.insert(0, str(APP_ROOT))
 
+from app.environment import VulnerabilityTaskEnv
+from app.models import Action as CompatAction
+from app.models import Observation as CompatObservation
 from env.environment import VulnArenaEnv
 from env.tasks import ALL_TASKS
 from env.triage_env import TriageEnv
@@ -122,11 +125,15 @@ RATE_BUCKETS: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 
 
 class ResetRequest(BaseModel):
-    task_name: str = "easy"
+    task_name: str | None = "easy"
+    task_id: str | None = None
 
 
 class StepRequest(BaseModel):
-    action: str
+    action: str | dict[str, Any] | None = None
+    severity: str | None = None
+    component: str | None = None
+    remediation: str | None = None
     report_text: str | None = None
     logs: list[str] | None = None
     code_snippet: str | None = None
@@ -183,7 +190,7 @@ def _prune_sessions_locked() -> None:
         del SESSIONS[sid]
 
 
-def _get_session_env(request: Request) -> tuple[str, VulnArenaEnv, bool]:
+def _get_session_env(request: Request) -> tuple[str, dict[str, Any], bool]:
     session_id = request.cookies.get(SESSION_COOKIE, "")
     created = False
 
@@ -195,13 +202,18 @@ def _get_session_env(request: Request) -> tuple[str, VulnArenaEnv, bool]:
 
         session = SESSIONS.get(session_id)
         if session is None:
-            session = {"env": VulnArenaEnv(), "last_seen": time.time()}
+            session = {
+                "legacy_env": VulnArenaEnv(),
+                "compat_env": VulnerabilityTaskEnv(),
+                "mode": "legacy",
+                "last_seen": time.time(),
+            }
             SESSIONS[session_id] = session
             created = True
         else:
             session["last_seen"] = time.time()
 
-    return session_id, session["env"], created
+    return session_id, session, created
 
 
 def _json_response(
@@ -238,6 +250,30 @@ def _validate_step_payload(req: StepRequest) -> None:
         raise HTTPException(status_code=413, detail="Code snippet is too large.")
     if len(joined_logs) > 16000:
         raise HTTPException(status_code=413, detail="Log payload is too large.")
+
+
+def _is_compat_step(req: StepRequest, session: dict[str, Any]) -> bool:
+    return (
+        session.get("mode") == "compat"
+        or isinstance(req.action, dict)
+        or any((req.severity, req.component, req.remediation))
+    )
+
+
+def _compat_action_payload(req: StepRequest) -> dict[str, str]:
+    if isinstance(req.action, dict):
+        payload = dict(req.action)
+    else:
+        payload = {}
+
+    if req.severity is not None:
+        payload["severity"] = req.severity
+    if req.component is not None:
+        payload["component"] = req.component
+    if req.remediation is not None:
+        payload["remediation"] = req.remediation
+
+    return validate_action(payload)
 
 
 def build_user_prompt(report: str) -> str:
@@ -591,6 +627,33 @@ def health(request: Request):
     )
 
 
+@app.get("/health")
+def openenv_health(request: Request):
+    return _json_response({"status": "healthy"}, request)
+
+
+@app.get("/metadata")
+def metadata(request: Request):
+    return _json_response(
+        {
+            "name": "VulnArena AI",
+            "description": "Vulnerability triage environment with validator-facing graded tasks.",
+        },
+        request,
+    )
+
+
+@app.get("/schema")
+def schema(request: Request):
+    return _json_response(
+        {
+            "action_schema": CompatAction.model_json_schema(),
+            "observation_schema": CompatObservation.model_json_schema(),
+        },
+        request,
+    )
+
+
 @app.get("/api/tasks")
 def list_tasks(request: Request):
     tasks = [
@@ -623,16 +686,48 @@ def triage_random(req: RandomTriageRequest, request: Request):
 @app.get("/state")
 def state(request: Request):
     _enforce_rate_limit(_client_ip(request), "env", GENERAL_RATE_LIMIT, GENERAL_RATE_WINDOW_SECONDS)
-    session_id, env, created = _get_session_env(request)
-    return _json_response({"state": env.state()}, request, session_id=session_id, session_created=created)
+    session_id, session, created = _get_session_env(request)
+    if session.get("mode") == "compat":
+        return _json_response(
+            session["compat_env"].state().model_dump(),
+            request,
+            session_id=session_id,
+            session_created=created,
+        )
+    return _json_response(
+        {"state": session["legacy_env"].state()},
+        request,
+        session_id=session_id,
+        session_created=created,
+    )
 
 
 @app.post("/reset")
 def reset(request: Request, req: ResetRequest | None = None):
     _enforce_rate_limit(_client_ip(request), "env", GENERAL_RATE_LIMIT, GENERAL_RATE_WINDOW_SECONDS)
-    session_id, env, created = _get_session_env(request)
+    session_id, session, created = _get_session_env(request)
+
+    if req and req.task_id:
+        session["mode"] = "compat"
+        try:
+            result = session["compat_env"].reset(task_id=req.task_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _json_response(
+            result.model_dump(),
+            request,
+            session_id=session_id,
+            session_created=created,
+        )
+
     task_name = req.task_name if req and req.task_name in {"easy", "medium", "hard"} else "easy"
-    return _json_response(env.reset(task_name), request, session_id=session_id, session_created=created)
+    session["mode"] = "legacy"
+    return _json_response(
+        session["legacy_env"].reset(task_name),
+        request,
+        session_id=session_id,
+        session_created=created,
+    )
 
 
 @app.post("/step")
@@ -642,7 +737,27 @@ def step(req: StepRequest, request: Request):
     if req.action == "suggest_fix":
         _enforce_rate_limit(_client_ip(request), "llm-fix", EXPENSIVE_RATE_LIMIT, EXPENSIVE_RATE_WINDOW_SECONDS)
 
-    session_id, env, created = _get_session_env(request)
+    session_id, session, created = _get_session_env(request)
+
+    if _is_compat_step(req, session):
+        session["mode"] = "compat"
+        try:
+            compat_action = CompatAction(**_compat_action_payload(req))
+            result = session["compat_env"].step(compat_action)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Compatibility step failed: {exc}") from exc
+
+        return _json_response(
+            result.model_dump(),
+            request,
+            session_id=session_id,
+            session_created=created,
+        )
+
+    if not isinstance(req.action, str):
+        raise HTTPException(status_code=422, detail="Legacy environment actions must be string commands.")
+
+    env = session["legacy_env"]
     custom_req = None
     if any((req.report_text, req.logs, req.code_snippet)):
         custom_req = SimpleNamespace(
@@ -696,7 +811,7 @@ def frontend_root():
 
 @app.get("/{full_path:path}")
 def frontend_assets(full_path: str):
-    if full_path.startswith(("api/", "reset", "step", "state")):
+    if full_path.startswith(("api/", "reset", "step", "state", "health", "metadata", "schema")):
         raise HTTPException(status_code=404, detail="Not found")
 
     asset = _resolve_frontend_path(full_path)

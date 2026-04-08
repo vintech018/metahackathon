@@ -29,7 +29,7 @@ server = "server.app:main"
 inference = "inference:main"
 
 [tool.setuptools]
-packages = ["agent", "env", "grader", "server", "tasks"]
+packages = ["agent", "app", "env", "grader", "server", "tasks"]
 py-modules = [
     "backend",
     "file_parser",
@@ -37,5 +37,7 @@ py-modules = [
     "run_dashboard",
     "run_training",
     "run_triage",
+    "test_graders",
     "test_env",
+    "verify_graders",
 ]
