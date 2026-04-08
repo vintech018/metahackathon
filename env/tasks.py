@@ -5,7 +5,9 @@ Each task is a fully self-contained vulnerability report with ground-truth
 labels used by the grader.  Tasks are grouped by difficulty tier.
 """
 
-from typing import TypedDict
+from typing import Callable, TypedDict
+
+from env.graders import grade_task
 
 
 class ExpectedOutput(TypedDict):
@@ -19,6 +21,7 @@ class Task(TypedDict):
     difficulty: str  # "easy" | "medium" | "hard"
     report: str
     expected: ExpectedOutput
+    grader: Callable[..., float]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -28,6 +31,7 @@ class Task(TypedDict):
 TASK_EASY_SQL_INJECTION: Task = {
     "id": "task_1",
     "difficulty": "easy",
+    "grader": grade_task,
     "report": (
         "Title: SQL Injection in Login Form\n"
         "Description: The /api/v1/login endpoint is vulnerable to SQL injection. "
@@ -57,6 +61,7 @@ TASK_EASY_SQL_INJECTION: Task = {
 TASK_EASY_XSS: Task = {
     "id": "task_2",
     "difficulty": "easy",
+    "grader": grade_task,
     "report": (
         "Title: Reflected XSS in Search Page\n"
         "Description: The /search endpoint reflects the 'q' query parameter "
@@ -85,6 +90,7 @@ TASK_EASY_XSS: Task = {
 TASK_EASY_RCE: Task = {
     "id": "task_3",
     "difficulty": "easy",
+    "grader": grade_task,
     "report": (
         "Title: Remote Code Execution via File Upload\n"
         "Description: The /api/v1/upload endpoint allows uploading arbitrary "
@@ -118,6 +124,7 @@ TASK_EASY_RCE: Task = {
 TASK_MEDIUM_TOKEN_REUSE: Task = {
     "id": "task_4",
     "difficulty": "medium",
+    "grader": grade_task,
     "report": (
         "Title: Auth Token Reuse After Password Change\n"
         "Description: After a user changes their password, previously issued "
@@ -148,6 +155,7 @@ TASK_MEDIUM_TOKEN_REUSE: Task = {
 TASK_MEDIUM_IDOR: Task = {
     "id": "task_5",
     "difficulty": "medium",
+    "grader": grade_task,
     "report": (
         "Title: IDOR on User Profile Endpoint\n"
         "Description: The /api/v1/users/{id}/profile endpoint does not verify "
@@ -178,6 +186,7 @@ TASK_MEDIUM_IDOR: Task = {
 TASK_MEDIUM_CSRF: Task = {
     "id": "task_6",
     "difficulty": "medium",
+    "grader": grade_task,
     "report": (
         "Title: CSRF on Account Settings Update\n"
         "Description: The /api/v1/settings endpoint accepts state-changing "
@@ -212,6 +221,7 @@ TASK_MEDIUM_CSRF: Task = {
 TASK_HARD_STORED_XSS_CHAIN: Task = {
     "id": "task_7",
     "difficulty": "hard",
+    "grader": grade_task,
     "report": (
         "Title: Stored XSS Leading to Session Hijack Chain\n"
         "Description: The application's comment system on /api/v1/comments "
@@ -242,6 +252,7 @@ TASK_HARD_STORED_XSS_CHAIN: Task = {
 TASK_HARD_SSRF_CHAIN: Task = {
     "id": "task_8",
     "difficulty": "hard",
+    "grader": grade_task,
     "report": (
         "Title: SSRF Leading to Internal Data Exposure\n"
         "Description: The /api/v1/fetch-url endpoint accepts a user-supplied "
@@ -275,6 +286,7 @@ TASK_HARD_SSRF_CHAIN: Task = {
 TASK_HARD_BROKEN_AUTH_CHAIN: Task = {
     "id": "task_9",
     "difficulty": "hard",
+    "grader": grade_task,
     "report": (
         "Title: Broken Authentication Combined with Privilege Escalation\n"
         "Description: The application's password reset flow at "
@@ -312,6 +324,7 @@ TASK_HARD_BROKEN_AUTH_CHAIN: Task = {
 TASK_EASY_INFO_DISCLOSURE: Task = {
     "id": "task_10",
     "difficulty": "easy",
+    "grader": grade_task,
     "report": (
         "Title: Information Disclosure via Verbose Error Messages\n"
         "Description: The /api/v1/users endpoint returns detailed stack traces "

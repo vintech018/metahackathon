@@ -1,7 +1,12 @@
+from grader.cvss_grader import calculate_final_score
+
+
+grader = calculate_final_score
+
 task_data = {
     "id": "legacy_easy_sql_injection",
     "difficulty": "easy",
-    "grader": "grader.cvss_grader:calculate_final_score",
+    "grader": grader,
     "report_text": "Users are able to view other users' profiles by modifying the ID parameter in the URL.",
     "logs": ["GET /profile?id=123 200 OK", "GET /profile?id=124 200 OK", "GET /profile?id=1 OR 1=1 500 ISE"],
     "code_snippet": "query = f'SELECT * FROM users WHERE id = {request.GET.get(\"id\")}'\ncursor.execute(query)",

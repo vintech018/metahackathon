@@ -304,3 +304,22 @@ def grade_with_difficulty_detailed(
     multiplier = DIFFICULTY_MULTIPLIERS.get(difficulty.lower(), 1.0)
     details["scaled_total"] = _strict_unit_interval(details["total"] * multiplier)
     return details
+
+
+def grade_task(
+    task: dict[str, object],
+    action: "TriageAction | dict[str, str]",
+) -> float:
+    """
+    Grade a full task dictionary with explicit task metadata.
+
+    This helper gives the hackathon validator a direct callable grader
+    attached to each task entry.
+    """
+    if isinstance(action, dict):
+        action = TriageAction(**action)
+
+    expected = task["expected"]
+    difficulty = str(task["difficulty"])
+    report = str(task["report"])
+    return grade_with_difficulty(action, expected, difficulty, report)

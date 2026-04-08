@@ -1,7 +1,12 @@
+from grader.cvss_grader import calculate_final_score
+
+
+grader = calculate_final_score
+
 task_data = {
     "id": "legacy_medium_upload_dos",
     "difficulty": "medium",
-    "grader": "grader.cvss_grader:calculate_final_score",
+    "grader": grader,
     "report_text": "The application crashes randomly when uploading a large malformed PDF file.",
     "logs": ["POST /upload 500", "Worker thread paniced"],
     "code_snippet": "def handle_upload(file):\n    pdf_parser.parse(file.read())",

@@ -9,6 +9,7 @@ These tasks simulate real-world bug bounty submissions that are often:
     • Include red herrings and irrelevant details
 """
 
+from env.graders import grade_task
 from env.tasks import Task, ExpectedOutput, ALL_TASKS
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -18,6 +19,7 @@ from env.tasks import Task, ExpectedOutput, ALL_TASKS
 TASK_NOISY_SQLI: Task = {
     "id": "task_ext_1",
     "difficulty": "hard",
+    "grader": grade_task,
     "report": (
         "yo so i found this weird thing on ur site... basically when i put "
         "some special chars in the login box it logs me in as admin?? i think "
@@ -45,6 +47,7 @@ TASK_NOISY_SQLI: Task = {
 TASK_NOISY_XSS_VAGUE: Task = {
     "id": "task_ext_2",
     "difficulty": "hard",
+    "grader": grade_task,
     "report": (
         "Subject: security bug found!!!\n\n"
         "Hi team, I noticed something concerning. When I enter HTML tags into "
@@ -70,6 +73,7 @@ TASK_NOISY_XSS_VAGUE: Task = {
 TASK_NOISY_INCOMPLETE_SSRF: Task = {
     "id": "task_ext_3",
     "difficulty": "hard",
+    "grader": grade_task,
     "report": (
         "vulnerability in URL fetcher\n"
         "endpoint: /api/fetch\n"
@@ -94,6 +98,7 @@ TASK_NOISY_INCOMPLETE_SSRF: Task = {
 TASK_NOISY_MISLEADING_SEVERITY: Task = {
     "id": "task_ext_4",
     "difficulty": "hard",
+    "grader": grade_task,
     "report": (
         "URGENT CRITICAL P0 EMERGENCY\n\n"
         "Found a bug where the application returns slightly different HTTP "
@@ -119,6 +124,7 @@ TASK_NOISY_MISLEADING_SEVERITY: Task = {
 TASK_NOISY_TYPOS_AND_SLANG: Task = {
     "id": "task_ext_5",
     "difficulty": "medium",
+    "grader": grade_task,
     "report": (
         "heyyy found a rly bad bug in ur API. basicaly the /api/v2/admin/users "
         "endpoint duznt check if ur actually an admin lol. i just sent a GET "
@@ -148,6 +154,7 @@ TASK_NOISY_TYPOS_AND_SLANG: Task = {
 TASK_MULTI_XSS_CSRF: Task = {
     "id": "task_ext_6",
     "difficulty": "hard",
+    "grader": grade_task,
     "report": (
         "Title: Reflected XSS + CSRF Combo in Settings Page\n\n"
         "Description: Found two related vulnerabilities:\n\n"
@@ -177,6 +184,7 @@ TASK_MULTI_XSS_CSRF: Task = {
 TASK_MULTI_SQLI_PRIV_ESC: Task = {
     "id": "task_ext_7",
     "difficulty": "hard",
+    "grader": grade_task,
     "report": (
         "Title: SQL Injection to Privilege Escalation\n\n"
         "A second-order SQL injection exists in the admin reporting module.\n\n"
@@ -208,6 +216,7 @@ TASK_MULTI_SQLI_PRIV_ESC: Task = {
 TASK_MULTI_AUTH_BYPASS_DATA_LEAK: Task = {
     "id": "task_ext_8",
     "difficulty": "hard",
+    "grader": grade_task,
     "report": (
         "Title: JWT None Algorithm + Unprotected GraphQL Introspection\n\n"
         "Vulnerability 1 — JWT None Algorithm Attack:\n"
@@ -240,6 +249,7 @@ TASK_MULTI_AUTH_BYPASS_DATA_LEAK: Task = {
 TASK_MULTI_RATE_LIMIT_BRUTE: Task = {
     "id": "task_ext_9",
     "difficulty": "medium",
+    "grader": grade_task,
     "report": (
         "Title: Missing Rate Limiting on Login + Weak Password Policy\n\n"
         "The /api/auth/login endpoint has no rate limiting. I was able to send "
@@ -270,6 +280,7 @@ TASK_MULTI_RATE_LIMIT_BRUTE: Task = {
 TASK_NOISY_REDIRECT: Task = {
     "id": "task_ext_10",
     "difficulty": "medium",
+    "grader": grade_task,
     "report": (
         "found open redirect on /login?next=http://evil.com\n"
         "after login it redirects to attacker site\n"
