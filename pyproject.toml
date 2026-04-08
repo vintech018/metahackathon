@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vulnarena-ai"
+version = "0.1.0"
+description = "VulnArena AI environment for OpenEnv"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openenv-core[core]>=0.2.2",
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "openai",
+    "requests",
+    "PyPDF2",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+server = "backend:main"
+inference = "inference:main"
+
+[tool.setuptools]
+packages = ["agent", "env", "grader", "tasks"]
+py-modules = [
+    "backend",
+    "file_parser",
+    "inference",
+    "run_dashboard",
+    "run_training",
+    "run_triage",
+    "test_env",
+]
