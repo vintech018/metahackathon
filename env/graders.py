@@ -41,6 +41,19 @@ DIFFICULTY_MULTIPLIERS: dict[str, float] = {
     "hard": 1.5,
 }
 
+STRICT_MIN_SCORE: float = 0.01
+STRICT_MAX_SCORE: float = 0.99
+
+
+def _strict_unit_interval(score: float) -> float:
+    """Clamp scores away from the exact endpoints required by the hackathon validator."""
+    bounded = max(0.0, min(1.0, score))
+    if bounded <= 0.0:
+        return STRICT_MIN_SCORE
+    if bounded >= 1.0:
+        return STRICT_MAX_SCORE
+    return round(bounded, 4)
+
 
 def _score_severity(action_severity: str, expected_severity: str) -> float:
     """Return 1.0 if severities match (case-insensitive), else 0.0."""
@@ -213,7 +226,7 @@ def grade_detailed(
         "component_score": round(W_COMPONENT * comp, 4),
         "remediation_score": round(W_REMEDIATION * rem, 4),
         "bonus_score": round(bonus + chain, 4),
-        "total": round(min(raw_total, 1.0), 4),
+        "total": _strict_unit_interval(raw_total),
     }
 
 
@@ -272,7 +285,7 @@ def grade_with_difficulty(
     """
     raw = grade(action, expected, report)
     multiplier = DIFFICULTY_MULTIPLIERS.get(difficulty.lower(), 1.0)
-    return round(min(raw * multiplier, 1.0), 4)
+    return _strict_unit_interval(raw * multiplier)
 
 
 def grade_with_difficulty_detailed(
@@ -289,5 +302,5 @@ def grade_with_difficulty_detailed(
     """
     details = grade_detailed(action, expected, report)
     multiplier = DIFFICULTY_MULTIPLIERS.get(difficulty.lower(), 1.0)
-    details["scaled_total"] = round(min(details["total"] * multiplier, 1.0), 4)
+    details["scaled_total"] = _strict_unit_interval(details["total"] * multiplier)
     return details

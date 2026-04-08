@@ -1,4 +1,7 @@
 task_data = {
+    "id": "legacy_hard_xss_csrf_chain",
+    "difficulty": "hard",
+    "grader": "grader.cvss_grader:calculate_final_score",
     "report_text": "A user reported their session was hijacked. They clicked a link in a blog comment.",
     "logs": ["GET /blog/123 200 OK", "POST /admin/delete_user 200 OK"],
     "code_snippet": "return render_template('blog.html', comment=request.args.get('comment'))",
