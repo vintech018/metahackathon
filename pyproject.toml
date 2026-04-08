@@ -25,11 +25,11 @@ dev = [
 ]
 
 [project.scripts]
-server = "backend:main"
+server = "server.app:main"
 inference = "inference:main"
 
 [tool.setuptools]
-packages = ["agent", "env", "grader", "tasks"]
+packages = ["agent", "env", "grader", "server", "tasks"]
 py-modules = [
     "backend",
     "file_parser",
